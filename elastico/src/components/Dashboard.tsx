@@ -2,7 +2,7 @@
  * elastico/src/components/Dashboard.tsx
  * Main dashboard layout with sidebar and tabbed content area
  */
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import IndicesSidebar from './IndicesSidebar';
 import IndexDetail from './IndexDetail';
 import { ElasticsearchIndex } from '../types/elasticsearch';
@@ -22,7 +22,9 @@ interface IndexTab {
 const Dashboard: React.FC = () => {
   const [openTabs, setOpenTabs] = useState<IndexTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const { service: elasticsearchService, connectionStatus } = useElasticsearch();
+  // Add a ref to pass to the sidebar to trigger refreshes
+  const sidebarRefreshTrigger = useRef<(() => Promise<void>) | undefined>(undefined);
+  const { service: elasticsearchService } = useElasticsearch();
 
   // Handle selecting an index from the sidebar
   const handleSelectIndex = (index: ElasticsearchIndex) => {
@@ -56,13 +58,57 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // Callback function to register the sidebar's refresh function
+  const registerSidebarRefresh = (refreshFn: () => Promise<void>) => {
+    sidebarRefreshTrigger.current = refreshFn;
+  };
+
+  // Refresh all tabs after an operation (like deleting an index)
+  const handleRefreshAfterOperation = async (refreshedIndexName?: string) => {
+    try {
+      // Reload the list of indices
+      const indices = await elasticsearchService.getIndices();
+
+      // If the index was deleted, close its tab
+      if (refreshedIndexName && !indices.some((idx) => idx.name === refreshedIndexName)) {
+        // Index no longer exists - remove its tab
+        const updatedTabs = openTabs.filter((tab) => tab.id !== refreshedIndexName);
+        setOpenTabs(updatedTabs);
+
+        // If we closed the active tab, activate another one if available
+        if (activeTabId === refreshedIndexName && updatedTabs.length > 0) {
+          setActiveTabId(updatedTabs[updatedTabs.length - 1].id);
+        } else if (updatedTabs.length === 0) {
+          setActiveTabId(null);
+        }
+      } else {
+        // Update tab data with fresh index information
+        const updatedTabs = openTabs.map((tab) => {
+          const freshIndex = indices.find((idx) => idx.name === tab.id);
+          if (freshIndex) {
+            return { ...tab, index: freshIndex };
+          }
+          return tab;
+        });
+        setOpenTabs(updatedTabs);
+      }
+
+      // Trigger the sidebar refresh if registered
+      if (sidebarRefreshTrigger.current) {
+        await sidebarRefreshTrigger.current();
+      }
+    } catch (error) {
+      console.error('Failed to refresh indices:', error);
+    }
+  };
+
   // Get the currently active index
   const activeIndex = openTabs.find((tab) => tab.id === activeTabId)?.index || null;
 
   return (
     <div className='flex h-[calc(100vh-4rem)] bg-gray-100'>
       {/* Sidebar */}
-      <IndicesSidebar onSelectIndex={handleSelectIndex} selectedIndex={activeIndex} />
+      <IndicesSidebar onSelectIndex={handleSelectIndex} selectedIndex={activeIndex} registerRefresh={registerSidebarRefresh} />
 
       {/* Main content area */}
       <div className='flex-1 flex flex-col overflow-hidden'>
@@ -101,7 +147,7 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           ) : activeIndex ? (
-            <IndexDetail index={activeIndex} />
+            <IndexDetail index={activeIndex} onRefresh={handleRefreshAfterOperation} />
           ) : (
             <div className='flex items-center justify-center h-full'>
               <div className='text-center'>

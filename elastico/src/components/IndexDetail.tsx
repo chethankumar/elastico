@@ -5,18 +5,20 @@
 import React, { useState, useEffect } from 'react';
 import { ElasticsearchIndex, QueryResult } from '../types/elasticsearch';
 import { useElasticsearch } from '../contexts/ElasticsearchContext';
+import { useToast } from '../contexts/ToastContext';
 
 // Tab interface definitions
 type TabType = 'overview' | 'documents' | 'mappings' | 'settings';
 
 interface IndexDetailProps {
   index: ElasticsearchIndex;
+  onRefresh?: (indexName?: string) => Promise<void>;
 }
 
 /**
  * Component to display index details and documents
  */
-const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
+const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [documents, setDocuments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,8 +29,39 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
   const [selectedDoc, setSelectedDoc] = useState<any | null>(null);
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  // New state for operations
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Add mapping state
+  const [mappings, setMappings] = useState<any | null>(null);
+  const [isMappingsLoading, setIsMappingsLoading] = useState(false);
+  const [mappingsError, setMappingsError] = useState<string | null>(null);
+  const [expandedProperties, setExpandedProperties] = useState<Set<string>>(new Set());
+
+  // Add settings state
+  const [settings, setSettings] = useState<any | null>(null);
+  const [isSettingsLoading, setIsSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [expandedSettings, setExpandedSettings] = useState<Set<string>>(new Set());
+
+  // Add confirmation dialog state
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<'deleteIndex' | 'deleteDocuments' | 'deleteSelectedDocuments' | null>(null);
+  const [confirmMessage, setConfirmMessage] = useState('');
+
+  // Add create document dialog state
+  const [showCreateDocDialog, setShowCreateDocDialog] = useState(false);
+  const [isCreatingDoc, setIsCreatingDoc] = useState(false);
+  const [newDocJSON, setNewDocJSON] = useState('{\n  \n}');
+  const [docId, setDocId] = useState('');
+  const [jsonError, setJsonError] = useState<string | null>(null);
+
+  // Add state for selected documents
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+  const [isAllSelected, setIsAllSelected] = useState(false);
 
   const { service: elasticsearchService } = useElasticsearch();
+  const { showToast } = useToast();
 
   // Load documents when the index changes or pagination/sort changes
   useEffect(() => {
@@ -79,6 +112,317 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
     loadDocuments();
   }, [elasticsearchService, index, page, pageSize, activeTab, sortField, sortOrder]);
 
+  // Load mappings when the index changes or when mappings tab is selected
+  useEffect(() => {
+    if (activeTab !== 'mappings' || !elasticsearchService.isConnected()) return;
+
+    const loadMappings = async () => {
+      setIsMappingsLoading(true);
+      setMappingsError(null);
+
+      try {
+        const mappingsData = await elasticsearchService.getIndexMappings(index.name);
+        setMappings(mappingsData);
+      } catch (error) {
+        console.error('Failed to load index mappings:', error);
+        setMappingsError(`Failed to load index mappings: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setIsMappingsLoading(false);
+      }
+    };
+
+    loadMappings();
+  }, [elasticsearchService, index.name, activeTab]);
+
+  // Load settings when the index changes or when settings tab is selected
+  useEffect(() => {
+    if (activeTab !== 'settings' || !elasticsearchService.isConnected()) return;
+
+    const loadSettings = async () => {
+      setIsSettingsLoading(true);
+      setSettingsError(null);
+
+      try {
+        const settingsData = await elasticsearchService.getIndexSettings(index.name);
+        setSettings(settingsData);
+      } catch (error) {
+        console.error('Failed to load index settings:', error);
+        setSettingsError(`Failed to load index settings: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setIsSettingsLoading(false);
+      }
+    };
+
+    loadSettings();
+  }, [elasticsearchService, index.name, activeTab]);
+
+  // Show create document dialog
+  const showCreateDocumentDialog = () => {
+    setNewDocJSON('{\n  \n}');
+    setDocId('');
+    setJsonError(null);
+    setShowCreateDocDialog(true);
+  };
+
+  // Handle create document
+  const handleCreateDocument = async () => {
+    // Validate JSON
+    try {
+      const docObject = JSON.parse(newDocJSON);
+      setJsonError(null);
+      setIsCreatingDoc(true);
+
+      try {
+        // Call the Elasticsearch service to create the document
+        await elasticsearchService.createDocument(index.name, docObject, docId.trim() === '' ? undefined : docId.trim());
+
+        // Show success toast
+        showToast(`Document successfully created in "${index.name}"`, 'success');
+        setShowCreateDocDialog(false);
+
+        // Refresh document list
+        if (activeTab === 'documents') {
+          // Reload current page
+          const sortConfig = sortField ? [{ [sortField]: { order: sortOrder } }] : [];
+          const from = (page - 1) * pageSize;
+          const queryString = JSON.stringify({
+            from,
+            size: pageSize,
+            sort: sortConfig,
+            query: {
+              match_all: {},
+            },
+          });
+
+          try {
+            setIsLoading(true);
+            const result: QueryResult = await elasticsearchService.executeQuery(index.name, queryString);
+            setDocuments(
+              result.hits.map((hit) => ({
+                id: hit._id,
+                ...hit._source,
+              }))
+            );
+            setTotalHits(result.total);
+          } catch (error) {
+            console.error('Failed to refresh documents:', error);
+          } finally {
+            setIsLoading(false);
+          }
+        }
+
+        // Refresh the parent component's indices list to update doc count
+        if (onRefresh) {
+          await onRefresh(index.name);
+        }
+      } catch (error) {
+        console.error('Failed to create document:', error);
+        showToast(`Failed to create document: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      } finally {
+        setIsCreatingDoc(false);
+      }
+    } catch (e) {
+      setJsonError('Invalid JSON. Please check your document format.');
+      return;
+    }
+  };
+
+  // Show confirmation dialog for delete index
+  const showDeleteIndexConfirmation = () => {
+    setConfirmMessage(`Are you sure you want to delete the index "${index.name}"? This action cannot be undone.`);
+    setConfirmAction('deleteIndex');
+    setShowConfirmDialog(true);
+  };
+
+  // Show confirmation dialog for delete documents
+  const showDeleteDocumentsConfirmation = () => {
+    setConfirmMessage(`Are you sure you want to delete all documents in the index "${index.name}"? This action cannot be undone.`);
+    setConfirmAction('deleteDocuments');
+    setShowConfirmDialog(true);
+  };
+
+  // Show confirmation dialog for delete selected documents
+  const showDeleteSelectedDocumentsConfirmation = () => {
+    const count = selectedDocIds.size;
+    setConfirmMessage(`Are you sure you want to delete ${count} selected document${count !== 1 ? 's' : ''} from the index "${index.name}"? This action cannot be undone.`);
+    setConfirmAction('deleteSelectedDocuments');
+    setShowConfirmDialog(true);
+  };
+
+  // Handle confirm dialog response
+  const handleConfirmDialogResponse = async (confirmed: boolean) => {
+    if (!confirmed) {
+      setShowConfirmDialog(false);
+      setConfirmAction(null);
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+
+      if (confirmAction === 'deleteIndex') {
+        await deleteIndex();
+      } else if (confirmAction === 'deleteDocuments') {
+        await deleteAllDocuments();
+      } else if (confirmAction === 'deleteSelectedDocuments') {
+        await deleteSelectedDocuments();
+      }
+    } finally {
+      setShowConfirmDialog(false);
+      setConfirmAction(null);
+    }
+  };
+
+  // Delete the entire index
+  const deleteIndex = async () => {
+    try {
+      console.log('Deleting index:', index.name);
+      await elasticsearchService.deleteIndex(index.name);
+
+      // Show success toast
+      showToast(`Index "${index.name}" was successfully deleted.`, 'success');
+
+      // Clear documents if we're in the documents tab
+      setDocuments([]);
+      setTotalHits(0);
+
+      // Refresh the parent component's indices list
+      if (onRefresh) {
+        // Pass the index name to indicate this index was deleted
+        await onRefresh(index.name);
+      }
+    } catch (error) {
+      console.error('Failed to delete index:', error);
+      // Show error toast
+      showToast(`Failed to delete index: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Delete all documents in the index
+  const deleteAllDocuments = async () => {
+    try {
+      console.log('Deleting all documents in index:', index.name);
+      const deleted = await elasticsearchService.deleteAllDocumentsInIndex(index.name);
+
+      // Show success toast
+      showToast(`Successfully deleted ${deleted.toLocaleString()} documents from "${index.name}".`, 'success');
+
+      // Clear documents if we're in the documents tab
+      setDocuments([]);
+      setTotalHits(0);
+
+      // Refresh the parent component's indices list to update doc count
+      if (onRefresh) {
+        // Pass the index name to ensure this specific index gets refreshed in the UI
+        await onRefresh(index.name);
+      }
+    } catch (error) {
+      console.error('Failed to delete documents:', error);
+      // Show error toast
+      showToast(`Failed to delete documents: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Delete selected documents
+  const deleteSelectedDocuments = async () => {
+    try {
+      console.log('Deleting selected documents:', Array.from(selectedDocIds));
+      const deleted = await elasticsearchService.deleteDocuments(index.name, Array.from(selectedDocIds));
+
+      // Show success toast
+      showToast(`Successfully deleted ${deleted.toLocaleString()} selected document${deleted !== 1 ? 's' : ''} from "${index.name}".`, 'success');
+
+      // Clear selected documents
+      setSelectedDocIds(new Set());
+      setIsAllSelected(false);
+
+      // Refresh document list
+      if (activeTab === 'documents') {
+        await refreshDocuments();
+      }
+
+      // Refresh the parent component's indices list to update doc count
+      if (onRefresh) {
+        await onRefresh(index.name);
+      }
+    } catch (error) {
+      console.error('Failed to delete selected documents:', error);
+      // Show error toast
+      showToast(`Failed to delete selected documents: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Helper function to refresh documents
+  const refreshDocuments = async () => {
+    try {
+      setIsLoading(true);
+      // Build sort query part
+      const sortConfig = sortField ? [{ [sortField]: { order: sortOrder } }] : [];
+      // Build pagination query
+      const from = (page - 1) * pageSize;
+      // Construct the full query
+      const queryString = JSON.stringify({
+        from,
+        size: pageSize,
+        sort: sortConfig,
+        query: {
+          match_all: {},
+        },
+      });
+
+      const result: QueryResult = await elasticsearchService.executeQuery(index.name, queryString);
+      setDocuments(
+        result.hits.map((hit) => ({
+          id: hit._id,
+          ...hit._source,
+        }))
+      );
+      setTotalHits(result.total);
+    } catch (error) {
+      console.error('Failed to refresh documents:', error);
+      setError(`Failed to refresh documents: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Toggle selection of a document
+  const toggleDocumentSelection = (docId: string) => {
+    setSelectedDocIds((prevSelected) => {
+      const newSelected = new Set(prevSelected);
+      if (newSelected.has(docId)) {
+        newSelected.delete(docId);
+      } else {
+        newSelected.add(docId);
+      }
+
+      // Update the all selected state
+      setIsAllSelected(newSelected.size === documents.length && documents.length > 0);
+
+      return newSelected;
+    });
+  };
+
+  // Toggle selection of all documents
+  const toggleSelectAll = () => {
+    if (isAllSelected || selectedDocIds.size === documents.length) {
+      // Deselect all
+      setSelectedDocIds(new Set());
+      setIsAllSelected(false);
+    } else {
+      // Select all
+      const allIds = documents.map((doc) => doc.id);
+      setSelectedDocIds(new Set(allIds));
+      setIsAllSelected(true);
+    }
+  };
+
   // Determine document fields for table columns based on first document
   let fields: string[] = [];
   if (documents.length > 0) {
@@ -109,30 +453,365 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
     }
   };
 
+  // Toggle property expansion in the mappings view
+  const togglePropertyExpansion = (propertyPath: string) => {
+    setExpandedProperties((prev) => {
+      const next = new Set(prev);
+      if (next.has(propertyPath)) {
+        next.delete(propertyPath);
+      } else {
+        next.add(propertyPath);
+      }
+      return next;
+    });
+  };
+
+  // Toggle settings section expansion in the settings view
+  const toggleSettingsExpansion = (sectionPath: string) => {
+    setExpandedSettings((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionPath)) {
+        next.delete(sectionPath);
+      } else {
+        next.add(sectionPath);
+      }
+      return next;
+    });
+  };
+
+  // Helper function to recursively render mapping properties
+  const renderMappingProperties = (properties: any, path: string = '', level: number = 0) => {
+    if (!properties) return null;
+
+    return (
+      <div style={{ marginLeft: level > 0 ? '20px' : '0' }}>
+        {Object.entries(properties).map(([propName, propDetails]: [string, any]) => {
+          const fullPath = path ? `${path}.${propName}` : propName;
+          const isExpanded = expandedProperties.has(fullPath);
+
+          // Handle nested properties
+          const hasNestedProperties = propDetails.properties && Object.keys(propDetails.properties).length > 0;
+
+          return (
+            <div key={fullPath} className='mb-2'>
+              <div
+                className={`flex items-center py-1 px-2 ${level === 0 ? 'bg-gray-100 rounded-md' : ''} ${hasNestedProperties ? 'cursor-pointer' : ''}`}
+                onClick={() => hasNestedProperties && togglePropertyExpansion(fullPath)}
+              >
+                {hasNestedProperties && (
+                  <svg className={`h-4 w-4 mr-1 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
+                    <path fillRule='evenodd' d='M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z' clipRule='evenodd' />
+                  </svg>
+                )}
+                <span className='font-medium'>{propName}</span>
+                <span className='ml-2 text-sm text-gray-500'>
+                  {propDetails.type ? (
+                    <span className={`px-2 py-0.5 rounded-full ${getTypeColor(propDetails.type)}`}>{propDetails.type}</span>
+                  ) : (
+                    <span className='px-2 py-0.5 bg-gray-100 rounded-full'>object</span>
+                  )}
+                </span>
+              </div>
+
+              {/* Property details */}
+              {propDetails.type && (
+                <div className='text-sm pl-6 py-1 space-y-1'>
+                  {propDetails.analyzer && (
+                    <div>
+                      <span className='text-gray-500'>analyzer:</span> {propDetails.analyzer}
+                    </div>
+                  )}
+                  {propDetails.format && (
+                    <div>
+                      <span className='text-gray-500'>format:</span> {propDetails.format}
+                    </div>
+                  )}
+                  {propDetails.index === false && <div className='text-amber-600'>not indexed</div>}
+                </div>
+              )}
+
+              {/* Nested properties */}
+              {hasNestedProperties && isExpanded && renderMappingProperties(propDetails.properties, fullPath, level + 1)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Helper function to determine type color
+  const getTypeColor = (type: string): string => {
+    switch (type) {
+      case 'text':
+      case 'keyword':
+        return 'bg-blue-100 text-blue-800';
+      case 'date':
+        return 'bg-purple-100 text-purple-800';
+      case 'long':
+      case 'integer':
+      case 'short':
+      case 'byte':
+      case 'double':
+      case 'float':
+      case 'half_float':
+      case 'scaled_float':
+        return 'bg-green-100 text-green-800';
+      case 'boolean':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'binary':
+        return 'bg-red-100 text-red-800';
+      case 'geo_point':
+      case 'geo_shape':
+        return 'bg-indigo-100 text-indigo-800';
+      case 'ip':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // Helper function to render settings in a structured way
+  const renderSettings = (settingsObj: any, path: string = '', level: number = 0) => {
+    if (!settingsObj || typeof settingsObj !== 'object') return null;
+
+    return (
+      <div style={{ marginLeft: level > 0 ? '20px' : '0' }}>
+        {Object.entries(settingsObj).map(([key, value]: [string, any]) => {
+          const fullPath = path ? `${path}.${key}` : key;
+          const isExpanded = expandedSettings.has(fullPath);
+          const isObject = value && typeof value === 'object' && !Array.isArray(value);
+
+          // Skip rendering if value is an empty object
+          if (isObject && Object.keys(value).length === 0) return null;
+
+          return (
+            <div key={fullPath} className='mb-2'>
+              <div
+                className={`flex items-center py-1 px-2 ${level === 0 ? 'bg-gray-100 rounded-md' : ''} ${isObject ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+                onClick={() => isObject && toggleSettingsExpansion(fullPath)}
+              >
+                {isObject && Object.keys(value).length > 0 && (
+                  <svg className={`h-4 w-4 mr-1 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
+                    <path fillRule='evenodd' d='M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z' clipRule='evenodd' />
+                  </svg>
+                )}
+
+                <span className='font-medium'>{key}</span>
+
+                {!isObject && (
+                  <span className='ml-2 text-sm'>{Array.isArray(value) ? <span className='text-blue-600'>[{value.join(', ')}]</span> : <span className='text-green-600'>{String(value)}</span>}</span>
+                )}
+              </div>
+
+              {/* Nested settings */}
+              {isObject && isExpanded && renderSettings(value, fullPath, level + 1)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Add a general refresh function
+  const refreshCurrentTab = async () => {
+    // Show loading indicator based on current tab
+    if (activeTab === 'overview') {
+      // We could refresh index info here if needed
+      if (onRefresh) {
+        await onRefresh(index.name);
+      }
+    } else if (activeTab === 'documents') {
+      await refreshDocuments();
+    } else if (activeTab === 'mappings') {
+      setIsMappingsLoading(true);
+      setMappingsError(null);
+      try {
+        const mappingsData = await elasticsearchService.getIndexMappings(index.name);
+        setMappings(mappingsData);
+      } catch (error) {
+        console.error('Failed to load index mappings:', error);
+        setMappingsError(`Failed to load index mappings: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setIsMappingsLoading(false);
+      }
+    } else if (activeTab === 'settings') {
+      setIsSettingsLoading(true);
+      setSettingsError(null);
+      try {
+        const settingsData = await elasticsearchService.getIndexSettings(index.name);
+        setSettings(settingsData);
+      } catch (error) {
+        console.error('Failed to load index settings:', error);
+        setSettingsError(`Failed to load index settings: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        setIsSettingsLoading(false);
+      }
+    }
+  };
+
   return (
     <div className='h-full flex flex-col bg-white overflow-hidden rounded-lg shadow'>
+      {/* Custom Confirmation Dialog */}
+      {showConfirmDialog && (
+        <div className='fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50'>
+          <div className='bg-white rounded-lg p-6 max-w-md w-full shadow-xl'>
+            <h3 className='text-lg font-medium text-gray-900 mb-4'>Confirm Action</h3>
+            <p className='text-gray-500 mb-6'>{confirmMessage}</p>
+            <div className='flex justify-end space-x-3'>
+              <button onClick={() => handleConfirmDialogResponse(false)} className='px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300' disabled={isDeleting}>
+                Cancel
+              </button>
+              <button onClick={() => handleConfirmDialogResponse(true)} className='px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700' disabled={isDeleting}>
+                {isDeleting ? (
+                  <>
+                    <svg className='animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                      <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                      <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                    </svg>
+                    Processing...
+                  </>
+                ) : (
+                  'Confirm'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Document Dialog */}
+      {showCreateDocDialog && (
+        <div className='fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50'>
+          <div className='bg-white rounded-lg p-6 max-w-3xl w-full shadow-xl'>
+            <h3 className='text-lg font-medium text-gray-900 mb-4'>Create New Document in {index.name}</h3>
+
+            <div className='mb-4'>
+              <label htmlFor='docId' className='block text-sm font-medium text-gray-700 mb-1'>
+                Document ID (optional)
+              </label>
+              <input
+                type='text'
+                id='docId'
+                value={docId}
+                onChange={(e) => setDocId(e.target.value)}
+                className='w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm'
+                placeholder='Leave empty for auto-generated ID'
+              />
+            </div>
+
+            <div className='mb-4'>
+              <label htmlFor='docJSON' className='block text-sm font-medium text-gray-700 mb-1'>
+                Document JSON
+              </label>
+              <textarea
+                id='docJSON'
+                value={newDocJSON}
+                onChange={(e) => setNewDocJSON(e.target.value)}
+                rows={12}
+                className='w-full font-mono border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm'
+                placeholder='{"field1": "value1", "field2": 42}'
+              />
+              {jsonError && <p className='mt-1 text-sm text-red-600'>{jsonError}</p>}
+            </div>
+
+            <div className='flex justify-end space-x-3'>
+              <button
+                onClick={() => setShowCreateDocDialog(false)}
+                className='px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500'
+                disabled={isCreatingDoc}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateDocument}
+                className='px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50'
+                disabled={isCreatingDoc}
+              >
+                {isCreatingDoc ? (
+                  <>
+                    <svg className='animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                      <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                      <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                    </svg>
+                    Creating...
+                  </>
+                ) : (
+                  'Create Document'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header with index name and actions */}
-      <div className='px-6 py-4 bg-white border-b border-gray-200 flex justify-between items-center'>
-        <div>
+      <div className='px-6 py-4 bg-white border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between'>
+        <div className='flex items-center'>
           <h2 className='text-lg font-medium text-gray-900 flex items-center'>
             <span className={`w-3 h-3 rounded-full mr-2 ${index.health === 'green' ? 'bg-green-500' : index.health === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}`}></span>
             {index.name}
           </h2>
-          <p className='mt-1 text-sm text-gray-500'>
+          {/* Add refresh button */}
+          <button
+            onClick={refreshCurrentTab}
+            className='ml-2 flex items-center justify-center p-1.5 rounded-md text-gray-500 hover:text-purple-600 hover:bg-purple-50 focus:outline-none'
+            title='Refresh'
+          >
+            <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' className='w-5 h-5'>
+              <path
+                fillRule='evenodd'
+                d='M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z'
+                clipRule='evenodd'
+              />
+            </svg>
+          </button>
+          <p className='mt-1 text-sm text-gray-500 ml-3'>
             {index.docsCount.toLocaleString()} documents • {index.storageSize} size
           </p>
         </div>
-        <div>
+
+        <div className='mt-3 sm:mt-0 flex flex-wrap gap-2'>
           <button
-            className='ml-2 px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500'
-            onClick={() => {
-              if (window.confirm(`Are you sure you want to delete the index "${index.name}"? This action cannot be undone.`)) {
-                // Delete index logic would go here
-                console.log('Delete index:', index.name);
-              }
-            }}
+            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
+            onClick={showCreateDocumentDialog}
           >
-            Delete Index
+            Create Document
+          </button>
+
+          <button
+            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50'
+            onClick={showDeleteIndexConfirmation}
+            disabled={isDeleting}
+          >
+            {isDeleting && confirmAction === 'deleteIndex' ? (
+              <>
+                <svg className='animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                  <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                  <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                </svg>
+                Deleting...
+              </>
+            ) : (
+              'Delete Index'
+            )}
+          </button>
+
+          <button
+            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50'
+            onClick={showDeleteDocumentsConfirmation}
+            disabled={isDeleting}
+          >
+            {isDeleting && confirmAction === 'deleteDocuments' ? (
+              <>
+                <svg className='animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                  <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                  <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                </svg>
+                Deleting...
+              </>
+            ) : (
+              'Clear Documents'
+            )}
           </button>
         </div>
       </div>
@@ -222,6 +901,34 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
 
           {activeTab === 'documents' && (
             <div className='h-full flex flex-col'>
+              {/* Documents toolbar */}
+              <div className='px-4 py-2 bg-gray-50 border-b border-gray-200 flex justify-between items-center'>
+                <div className='flex items-center'>
+                  <span className='text-sm text-gray-500 mr-2'>{selectedDocIds.size > 0 ? `${selectedDocIds.size} document${selectedDocIds.size !== 1 ? 's' : ''} selected` : 'Select documents'}</span>
+                </div>
+                <div>
+                  {selectedDocIds.size > 0 && (
+                    <button
+                      onClick={showDeleteSelectedDocumentsConfirmation}
+                      disabled={isDeleting}
+                      className='inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50'
+                    >
+                      {isDeleting && confirmAction === 'deleteSelectedDocuments' ? (
+                        <>
+                          <svg className='animate-spin -ml-1 mr-1 h-3 w-3 text-white inline-block' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                            <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                            <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                          </svg>
+                          Deleting...
+                        </>
+                      ) : (
+                        'Delete Selected'
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Documents table */}
               <div className='flex-1 overflow-x-auto'>
                 {isLoading ? (
@@ -243,6 +950,16 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
                   <table className='min-w-full divide-y divide-gray-200'>
                     <thead className='bg-gray-50'>
                       <tr>
+                        <th scope='col' className='px-4 py-3 w-10'>
+                          <div className='flex items-center'>
+                            <input
+                              type='checkbox'
+                              className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
+                              checked={isAllSelected || (documents.length > 0 && selectedDocIds.size === documents.length)}
+                              onChange={toggleSelectAll}
+                            />
+                          </div>
+                        </th>
                         <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100' onClick={() => handleSort('id')}>
                           <span className='flex items-center'>
                             ID
@@ -274,10 +991,23 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
                     </thead>
                     <tbody className='bg-white divide-y divide-gray-200'>
                       {documents.map((doc) => (
-                        <tr key={doc.id} className={`hover:bg-gray-50 cursor-pointer ${selectedDoc?.id === doc.id ? 'bg-purple-50' : ''}`} onClick={() => setSelectedDoc(doc)}>
-                          <td className='px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900'>{doc.id ? doc.id.toString().substring(0, 10) + '...' : 'N/A'}</td>
+                        <tr key={doc.id} className={`hover:bg-gray-50 ${selectedDoc?.id === doc.id ? 'bg-purple-50' : ''} ${selectedDocIds.has(doc.id) ? 'bg-purple-50' : ''}`}>
+                          <td className='px-4 py-4 whitespace-nowrap'>
+                            <div className='flex items-center'>
+                              <input
+                                type='checkbox'
+                                className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
+                                checked={selectedDocIds.has(doc.id)}
+                                onChange={() => toggleDocumentSelection(doc.id)}
+                                onClick={(e) => e.stopPropagation()} // Prevent row click
+                              />
+                            </div>
+                          </td>
+                          <td className='px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 cursor-pointer' onClick={() => setSelectedDoc(doc)}>
+                            {doc.id ? doc.id.toString().substring(0, 10) + '...' : 'N/A'}
+                          </td>
                           {fields.map((field) => (
-                            <td key={field} className='px-6 py-4 whitespace-nowrap text-sm text-gray-500'>
+                            <td key={field} className='px-6 py-4 whitespace-nowrap text-sm text-gray-500 cursor-pointer' onClick={() => setSelectedDoc(doc)}>
                               {renderFieldValue(doc[field])}
                             </td>
                           ))}
@@ -348,14 +1078,137 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index }) => {
           {activeTab === 'mappings' && (
             <div className='p-6'>
               <h3 className='text-lg font-medium text-gray-900 mb-4'>Index Mappings</h3>
-              <p className='text-gray-500'>Mappings will be implemented in a future update.</p>
+
+              {isMappingsLoading ? (
+                <div className='flex justify-center items-center h-40'>
+                  <svg className='animate-spin h-8 w-8 text-purple-500' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                    <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                    <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                  </svg>
+                </div>
+              ) : mappingsError ? (
+                <div className='p-4 bg-red-50 border border-red-200 rounded-md'>
+                  <p className='text-red-600'>{mappingsError}</p>
+                </div>
+              ) : !mappings ? (
+                <p className='text-gray-500'>No mapping information available.</p>
+              ) : (
+                <div className='bg-white shadow overflow-hidden sm:rounded-lg'>
+                  <div className='px-4 py-5 sm:p-6'>
+                    {/* Index mappings content */}
+                    <div className='mb-4'>
+                      <h4 className='text-sm font-medium text-gray-500 uppercase tracking-wider mb-2'>Properties</h4>
+
+                      {Object.keys(mappings).length === 0 ? (
+                        <p className='text-gray-500'>This index has no mappings defined.</p>
+                      ) : (
+                        // Get the properties from the mappings
+                        // Elasticsearch mappings structure: { index_name: { mappings: { properties: { ... } } } }
+                        Object.entries(mappings).map(([indexName, indexData]: [string, any]) => {
+                          const properties = indexData?.mappings?.properties;
+
+                          return (
+                            <div key={indexName} className='border border-gray-200 rounded-md p-4'>
+                              {properties ? renderMappingProperties(properties) : <p className='text-gray-500'>No properties defined.</p>}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Raw JSON view toggle button */}
+                    <div className='mt-6'>
+                      <button
+                        onClick={() => document.getElementById('raw-mappings')?.classList.toggle('hidden')}
+                        className='inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
+                      >
+                        <svg className='-ml-1 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'>
+                          <path
+                            fillRule='evenodd'
+                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z'
+                            clipRule='evenodd'
+                          />
+                        </svg>
+                        Toggle Raw JSON
+                      </button>
+
+                      <div id='raw-mappings' className='hidden mt-4'>
+                        <h4 className='text-sm font-medium text-gray-500 uppercase tracking-wider mb-2'>Raw Mappings JSON</h4>
+                        <pre className='bg-gray-50 p-4 rounded-md overflow-auto text-sm text-gray-800 max-h-96'>{JSON.stringify(mappings, null, 2)}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {activeTab === 'settings' && (
             <div className='p-6'>
               <h3 className='text-lg font-medium text-gray-900 mb-4'>Index Settings</h3>
-              <p className='text-gray-500'>Settings will be implemented in a future update.</p>
+
+              {isSettingsLoading ? (
+                <div className='flex justify-center items-center h-40'>
+                  <svg className='animate-spin h-8 w-8 text-purple-500' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                    <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                    <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                  </svg>
+                </div>
+              ) : settingsError ? (
+                <div className='p-4 bg-red-50 border border-red-200 rounded-md'>
+                  <p className='text-red-600'>{settingsError}</p>
+                </div>
+              ) : !settings ? (
+                <p className='text-gray-500'>No settings information available.</p>
+              ) : (
+                <div className='bg-white shadow overflow-hidden sm:rounded-lg'>
+                  <div className='px-4 py-5 sm:p-6'>
+                    {/* Index settings content */}
+                    <div className='mb-4'>
+                      <h4 className='text-sm font-medium text-gray-500 uppercase tracking-wider mb-2'>Configuration</h4>
+
+                      {Object.keys(settings).length === 0 ? (
+                        <p className='text-gray-500'>This index has no settings defined.</p>
+                      ) : (
+                        <div className='border border-gray-200 rounded-md p-4'>
+                          {Object.entries(settings).map(([indexName, indexData]: [string, any]) => {
+                            // Get settings object from the response
+                            // Structure is typically: { index_name: { settings: { index: {...}, ... } } }
+                            return (
+                              <div key={indexName}>
+                                <div className='font-medium text-gray-700 mb-2'>Settings for: {indexName}</div>
+                                {indexData && indexData.settings ? renderSettings(indexData.settings) : <p className='text-gray-500'>No settings information found.</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Raw JSON view toggle button */}
+                    <div className='mt-6'>
+                      <button
+                        onClick={() => document.getElementById('raw-settings')?.classList.toggle('hidden')}
+                        className='inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
+                      >
+                        <svg className='-ml-1 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'>
+                          <path
+                            fillRule='evenodd'
+                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z'
+                            clipRule='evenodd'
+                          />
+                        </svg>
+                        Toggle Raw JSON
+                      </button>
+
+                      <div id='raw-settings' className='hidden mt-4'>
+                        <h4 className='text-sm font-medium text-gray-500 uppercase tracking-wider mb-2'>Raw Settings JSON</h4>
+                        <pre className='bg-gray-50 p-4 rounded-md overflow-auto text-sm text-gray-800 max-h-96'>{JSON.stringify(settings, null, 2)}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

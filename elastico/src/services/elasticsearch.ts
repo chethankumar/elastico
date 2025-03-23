@@ -211,4 +211,168 @@ export class ElasticsearchService {
       throw error;
     }
   }
+
+  /**
+   * Delete an Elasticsearch index
+   * @param indexName - The name of the index to delete
+   * @returns A boolean indicating if the operation was successful
+   */
+  async deleteIndex(indexName: string): Promise<boolean> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Elasticsearch');
+    }
+
+    try {
+      // Call the Rust backend to delete the index
+      const result = await invoke<boolean>('delete_elasticsearch_index', { index: indexName });
+      return result;
+    } catch (error) {
+      console.error(`Failed to delete index ${indexName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete all documents in an Elasticsearch index while preserving the index structure
+   * @param indexName - The name of the index to clear
+   * @returns The number of documents deleted
+   */
+  async deleteAllDocumentsInIndex(indexName: string): Promise<number> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Elasticsearch');
+    }
+
+    try {
+      // Call the Rust backend to delete all documents in the index
+      const deleted = await invoke<number>('delete_all_documents_in_index', { index: indexName });
+      return deleted;
+    } catch (error) {
+      console.error(`Failed to delete documents in index ${indexName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete specific documents from an Elasticsearch index by their IDs
+   * @param indexName - The name of the index containing the documents
+   * @param docIds - Array of document IDs to delete
+   * @returns The number of documents successfully deleted
+   */
+  async deleteDocuments(indexName: string, docIds: string[]): Promise<number> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Elasticsearch');
+    }
+
+    if (!docIds.length) {
+      return 0; // Nothing to delete
+    }
+
+    try {
+      // Call the Rust backend to delete the specified documents
+      const deleted = await invoke<number>('delete_elasticsearch_documents', { 
+        index: indexName,
+        docIds
+      });
+      return deleted;
+    } catch (error) {
+      console.error(`Failed to delete documents in index ${indexName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new Elasticsearch index
+   * @param indexName - The name of the new index
+   * @param shards - The number of primary shards
+   * @param replicas - The number of replica shards
+   * @returns A boolean indicating if the operation was successful
+   */
+  async createIndex(indexName: string, shards: number, replicas: number): Promise<boolean> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Elasticsearch');
+    }
+
+    try {
+      // Call the Rust backend to create the index
+      const result = await invoke<boolean>('create_elasticsearch_index', { 
+        index: indexName,
+        shards,
+        replicas
+      });
+      return result;
+    } catch (error) {
+      console.error(`Failed to create index ${indexName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new document in an Elasticsearch index
+   * @param indexName - The name of the index to add the document to
+   * @param document - The document data as an object
+   * @param id - Optional ID for the document
+   * @returns The response from Elasticsearch including the generated ID and metadata
+   */
+  async createDocument(indexName: string, document: object, id?: string): Promise<any> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Elasticsearch');
+    }
+
+    try {
+      // Call the Rust backend to create the document
+      const result = await invoke<any>('create_elasticsearch_document', { 
+        index: indexName,
+        document: JSON.stringify(document),
+        id: id || null
+      });
+      return result;
+    } catch (error) {
+      console.error(`Failed to create document in index ${indexName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get mappings for an Elasticsearch index
+   * @param indexName - The name of the index to get mappings for
+   * @returns The index mappings as a JSON object
+   */
+  async getIndexMappings(indexName: string): Promise<any> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Elasticsearch');
+    }
+
+    try {
+      // Call the Rust backend to get index mappings
+      const mappings = await invoke<any>('get_elasticsearch_index_mappings', { 
+        index: indexName 
+      });
+      return mappings;
+    } catch (error) {
+      console.error(`Failed to get mappings for index ${indexName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get settings for an Elasticsearch index
+   * @param indexName - The name of the index to get settings for
+   * @returns The index settings as a JSON object
+   */
+  async getIndexSettings(indexName: string): Promise<any> {
+    if (!this.isConnected()) {
+      throw new Error('Not connected to Elasticsearch');
+    }
+
+    try {
+      // Call the Rust backend to get index settings
+      const settings = await invoke<any>('get_elasticsearch_index_settings', { 
+        index: indexName 
+      });
+      return settings;
+    } catch (error) {
+      console.error(`Failed to get settings for index ${indexName}:`, error);
+      throw error;
+    }
+  }
 } 

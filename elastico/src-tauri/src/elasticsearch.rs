@@ -329,4 +329,339 @@ pub async fn get_elasticsearch_cluster_health() -> Result<ClusterHealth, String>
         unassigned_shards: health_data["unassigned_shards"].as_u64().unwrap_or(0) as u32,
         pending_tasks: health_data["number_of_pending_tasks"].as_u64().unwrap_or(0) as u32,
     })
+}
+
+#[command]
+pub async fn delete_elasticsearch_index(index: String) -> Result<bool, String> {
+    // Get connection and client info, then drop the guards
+    let (conn, client) = {
+        let conn_guard = CONNECTION.lock();
+        let client_guard = CLIENT.lock();
+        
+        let conn = conn_guard.as_ref().ok_or("Not connected to Elasticsearch")?.clone();
+        let client = client_guard.as_ref().ok_or("HTTP client not available")?.clone();
+        
+        (conn, client)
+    };
+    
+    let url = format!("{}/{}", get_base_url(&conn), index);
+    let headers = create_auth_headers(&conn)?;
+    
+    // Send the DELETE request
+    let response = client.delete(&url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(text) => text,
+            Err(_) => "Could not read error response".to_string()
+        };
+        
+        return Err(format!("Failed to delete index '{}': {} - {}", index, status, body));
+    }
+    
+    // Log successful deletion
+    println!("Successfully deleted index: {}", index);
+    
+    Ok(true)
+}
+
+#[command]
+pub async fn delete_all_documents_in_index(index: String) -> Result<u64, String> {
+    // Get connection and client info, then drop the guards
+    let (conn, client) = {
+        let conn_guard = CONNECTION.lock();
+        let client_guard = CLIENT.lock();
+        
+        let conn = conn_guard.as_ref().ok_or("Not connected to Elasticsearch")?.clone();
+        let client = client_guard.as_ref().ok_or("HTTP client not available")?.clone();
+        
+        (conn, client)
+    };
+    
+    let url = format!("{}/{}/_delete_by_query", get_base_url(&conn), index);
+    let headers = create_auth_headers(&conn)?;
+    
+    // Create a query that matches all documents
+    let query_json = serde_json::json!({
+        "query": {
+            "match_all": {}
+        }
+    });
+    
+    // Send the request
+    let response = client
+        .post(&url)
+        .headers(headers)
+        .json(&query_json)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if response.status().is_success() {
+        let result: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+        let deleted = result["deleted"].as_u64().unwrap_or(0);
+        
+        println!("Successfully deleted {} documents from index: {}", deleted, index);
+        Ok(deleted)
+    } else {
+        let status = response.status();
+        let error_text = match response.text().await {
+            Ok(text) => text,
+            Err(_) => "Unable to read error response".to_string()
+        };
+        
+        Err(format!("Failed to delete documents - Status: {}, Response: {}", status, error_text))
+    }
+}
+
+#[command]
+pub async fn create_elasticsearch_index(index: String, shards: u32, replicas: u32) -> Result<bool, String> {
+    // Get connection and client info, then drop the guards
+    let (conn, client) = {
+        let conn_guard = CONNECTION.lock();
+        let client_guard = CLIENT.lock();
+        
+        let conn = conn_guard.as_ref().ok_or("Not connected to Elasticsearch")?.clone();
+        let client = client_guard.as_ref().ok_or("HTTP client not available")?.clone();
+        
+        (conn, client)
+    };
+    
+    let url = format!("{}/{}", get_base_url(&conn), index);
+    let headers = create_auth_headers(&conn)?;
+    
+    // Create the index with specified settings
+    let settings_json = serde_json::json!({
+        "settings": {
+            "number_of_shards": shards,
+            "number_of_replicas": replicas
+        }
+    });
+    
+    // Send the request
+    let response = client
+        .put(&url)
+        .headers(headers)
+        .json(&settings_json)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if response.status().is_success() {
+        println!("Successfully created index: {}", index);
+        Ok(true)
+    } else {
+        let status = response.status();
+        let error_text = match response.text().await {
+            Ok(text) => text,
+            Err(_) => "Unable to read error response".to_string()
+        };
+        
+        Err(format!("Failed to create index - Status: {}, Response: {}", status, error_text))
+    }
+}
+
+#[command]
+pub async fn create_elasticsearch_document(index: String, document: String, id: Option<String>) -> Result<serde_json::Value, String> {
+    // Get connection and client info, then drop the guards
+    let (conn, client) = {
+        let conn_guard = CONNECTION.lock();
+        let client_guard = CLIENT.lock();
+        
+        let conn = conn_guard.as_ref().ok_or("Not connected to Elasticsearch")?.clone();
+        let client = client_guard.as_ref().ok_or("HTTP client not available")?.clone();
+        
+        (conn, client)
+    };
+    
+    // Parse the document JSON
+    let document_json: serde_json::Value = serde_json::from_str(&document)
+        .map_err(|e| format!("Invalid document JSON: {}", e))?;
+    
+    // Create URL based on whether we have an ID or not
+    let url = if let Some(doc_id) = id {
+        format!("{}/{}/{}/_create", get_base_url(&conn), index, doc_id)
+    } else {
+        format!("{}/{}/_doc", get_base_url(&conn), index)
+    };
+    
+    let headers = create_auth_headers(&conn)?;
+    
+    // Send the request
+    let response = client
+        .post(&url)
+        .headers(headers)
+        .json(&document_json)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if response.status().is_success() {
+        let result: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+        
+        println!("Successfully created document in index: {}", index);
+        Ok(result)
+    } else {
+        let status = response.status();
+        let error_text = match response.text().await {
+            Ok(text) => text,
+            Err(_) => "Unable to read error response".to_string()
+        };
+        
+        Err(format!("Failed to create document - Status: {}, Response: {}", status, error_text))
+    }
+}
+
+#[command]
+pub async fn get_elasticsearch_index_mappings(index: String) -> Result<serde_json::Value, String> {
+    // Get connection and client info, then drop the guards
+    let (conn, client) = {
+        let conn_guard = CONNECTION.lock();
+        let client_guard = CLIENT.lock();
+        
+        let conn = conn_guard.as_ref().ok_or("Not connected to Elasticsearch")?.clone();
+        let client = client_guard.as_ref().ok_or("HTTP client not available")?.clone();
+        
+        (conn, client)
+    };
+    
+    let url = format!("{}/{}/_mapping", get_base_url(&conn), index);
+    let headers = create_auth_headers(&conn)?;
+    
+    // Send the request
+    let response = client.get(&url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Failed to get index mappings: {}", response.status()));
+    }
+    
+    let mappings: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    
+    println!("Successfully retrieved mappings for index: {}", index);
+    Ok(mappings)
+}
+
+#[command]
+pub async fn get_elasticsearch_index_settings(index: String) -> Result<serde_json::Value, String> {
+    // Get connection and client info, then drop the guards
+    let (conn, client) = {
+        let conn_guard = CONNECTION.lock();
+        let client_guard = CLIENT.lock();
+        
+        let conn = conn_guard.as_ref().ok_or("Not connected to Elasticsearch")?.clone();
+        let client = client_guard.as_ref().ok_or("HTTP client not available")?.clone();
+        
+        (conn, client)
+    };
+    
+    let url = format!("{}/{}/_settings", get_base_url(&conn), index);
+    let headers = create_auth_headers(&conn)?;
+    
+    // Send the request
+    let response = client.get(&url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Failed to get index settings: {}", response.status()));
+    }
+    
+    let settings: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    
+    println!("Successfully retrieved settings for index: {}", index);
+    Ok(settings)
+}
+
+#[command]
+pub async fn delete_elasticsearch_documents(index: String, doc_ids: Vec<String>) -> Result<u64, String> {
+    // Get connection and client info, then drop the guards
+    let (conn, client) = {
+        let conn_guard = CONNECTION.lock();
+        let client_guard = CLIENT.lock();
+        
+        let conn = conn_guard.as_ref().ok_or("Not connected to Elasticsearch")?.clone();
+        let client = client_guard.as_ref().ok_or("HTTP client not available")?.clone();
+        
+        (conn, client)
+    };
+    
+    if doc_ids.is_empty() {
+        return Ok(0); // No documents to delete
+    }
+    
+    // Create the bulk delete request
+    let mut bulk_operations = Vec::new();
+    
+    for doc_id in &doc_ids {
+        // Add delete action for each document ID
+        let delete_action = serde_json::json!({
+            "delete": {
+                "_index": index,
+                "_id": doc_id
+            }
+        });
+        
+        bulk_operations.push(delete_action);
+    }
+    
+    // Perform the bulk delete
+    let url = format!("{}/_bulk", get_base_url(&conn));
+    let mut headers = create_auth_headers(&conn)?;
+    
+    // Remove existing Content-Type header if present and add the correct one
+    headers.remove(CONTENT_TYPE);
+    headers.insert("Content-Type", HeaderValue::from_static("application/x-ndjson"));
+    
+    // Convert bulk operations to newline-delimited JSON (NDJSON)
+    let mut bulk_body = String::new();
+    for op in bulk_operations {
+        bulk_body.push_str(&serde_json::to_string(&op).map_err(|e| e.to_string())?);
+        bulk_body.push('\n');
+    }
+    
+    // Send the request
+    let response = client
+        .post(&url)
+        .headers(headers)
+        .body(bulk_body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if response.status().is_success() {
+        let result: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+        
+        // Count successful deletions
+        let successful_items = result["items"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .filter(|item| {
+                item["delete"]["status"].as_u64().unwrap_or(0) >= 200 
+                && item["delete"]["status"].as_u64().unwrap_or(0) < 300
+            })
+            .count() as u64;
+        
+        println!("Successfully deleted {} documents from index: {}", successful_items, index);
+        Ok(successful_items)
+    } else {
+        let status = response.status();
+        let error_text = match response.text().await {
+            Ok(text) => text,
+            Err(_) => "Unable to read error response".to_string()
+        };
+        
+        Err(format!("Failed to delete documents - Status: {}, Response: {}", status, error_text))
+    }
 } 
