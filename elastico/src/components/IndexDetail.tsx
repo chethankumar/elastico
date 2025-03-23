@@ -2,7 +2,7 @@
  * elastico/src/components/IndexDetail.tsx
  * Displays details and documents for a selected index
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ElasticsearchIndex, QueryResult } from '../types/elasticsearch';
 import { useElasticsearch } from '../contexts/ElasticsearchContext';
 import { useToast } from '../contexts/ToastContext';
@@ -59,13 +59,105 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
   // Add state for selected documents
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [isAllSelected, setIsAllSelected] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [idToDelete, setIdToDelete] = useState<string | null>(null);
+
+  // Use this flag to track if data for each tab has been loaded at least once
+  const [tabDataLoaded, setTabDataLoaded] = useState<Record<TabType, boolean>>({
+    overview: false,
+    documents: false,
+    mappings: false,
+    settings: false,
+  });
+
+  // Add a ref to track loaded data per index
+  const indexDataCache = useRef<
+    Record<
+      string,
+      {
+        documents: any[];
+        totalHits: number;
+        mappings: any | null;
+        settings: any | null;
+      }
+    >
+  >({});
 
   const { service: elasticsearchService } = useElasticsearch();
   const { showToast } = useToast();
 
-  // Load documents when the index changes or pagination/sort changes
+  // Set the overview tab as loaded initially
+  useEffect(() => {
+    setTabDataLoaded((prev) => ({ ...prev, overview: true }));
+  }, []);
+
+  // Reset state when index changes OR initialize from cache
+  useEffect(() => {
+    // Check if we have cached data for this index
+    const cachedData = indexDataCache.current[index.name];
+
+    if (cachedData) {
+      // Restore data from cache
+      if (cachedData.documents.length > 0) {
+        setDocuments(cachedData.documents);
+        setTotalHits(cachedData.totalHits);
+        setTabDataLoaded((prev) => ({ ...prev, documents: true }));
+      }
+
+      if (cachedData.mappings) {
+        setMappings(cachedData.mappings);
+        setTabDataLoaded((prev) => ({ ...prev, mappings: true }));
+      }
+
+      if (cachedData.settings) {
+        setSettings(cachedData.settings);
+        setTabDataLoaded((prev) => ({ ...prev, settings: true }));
+      }
+    } else {
+      // Initialize cache entry for this index
+      indexDataCache.current[index.name] = {
+        documents: [],
+        totalHits: 0,
+        mappings: null,
+        settings: null,
+      };
+
+      // Reset tab data loaded state for a new index
+      setTabDataLoaded({
+        overview: true, // Overview is always shown first
+        documents: false,
+        mappings: false,
+        settings: false,
+      });
+    }
+
+    // Clear any selected documents when index changes
+    setSelectedDocIds(new Set());
+    setIsAllSelected(false);
+    setSelectedDoc(null);
+
+    // Reset pagination
+    setPage(1);
+    setSortField(null);
+    setSortOrder('asc');
+  }, [index.name]);
+
+  // Create a tab switching handler that ensures a smooth experience
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+
+    // Reset document selection when leaving the documents tab
+    if (activeTab === 'documents' && tab !== 'documents') {
+      setSelectedDoc(null);
+    }
+  };
+
+  // Load documents when the index changes or pagination/sort changes, but not when switching tabs
   useEffect(() => {
     if (activeTab !== 'documents') return;
+
+    // Don't load if documents tab is marked as loaded and we're on page 1 with no sorting
+    if (tabDataLoaded.documents && page === 1 && sortField === null) return;
 
     const loadDocuments = async () => {
       if (!elasticsearchService.isConnected()) {
@@ -94,13 +186,23 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         });
 
         const result: QueryResult = await elasticsearchService.executeQuery(index.name, queryString);
-        setDocuments(
-          result.hits.map((hit) => ({
-            id: hit._id,
-            ...hit._source,
-          }))
-        );
+        const formattedDocs = result.hits.map((hit) => ({
+          id: hit._id,
+          ...hit._source,
+        }));
+
+        setDocuments(formattedDocs);
         setTotalHits(result.total);
+
+        // Update cache
+        indexDataCache.current[index.name] = {
+          ...indexDataCache.current[index.name],
+          documents: formattedDocs,
+          totalHits: result.total,
+        };
+
+        // Mark documents tab as loaded
+        setTabDataLoaded((prev) => ({ ...prev, documents: true }));
       } catch (error) {
         console.error('Failed to load documents:', error);
         setError(`Failed to load documents: ${error instanceof Error ? error.message : String(error)}`);
@@ -110,51 +212,75 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     };
 
     loadDocuments();
-  }, [elasticsearchService, index, page, pageSize, activeTab, sortField, sortOrder]);
+  }, [elasticsearchService, index.name, page, pageSize, activeTab, sortField, sortOrder, tabDataLoaded.documents]);
 
-  // Load mappings when the index changes or when mappings tab is selected
+  // Load mappings when viewing mappings tab for the first time
   useEffect(() => {
     if (activeTab !== 'mappings' || !elasticsearchService.isConnected()) return;
 
-    const loadMappings = async () => {
-      setIsMappingsLoading(true);
-      setMappingsError(null);
+    // Only load if not loaded before
+    if (!tabDataLoaded.mappings) {
+      const loadMappings = async () => {
+        setIsMappingsLoading(true);
+        setMappingsError(null);
 
-      try {
-        const mappingsData = await elasticsearchService.getIndexMappings(index.name);
-        setMappings(mappingsData);
-      } catch (error) {
-        console.error('Failed to load index mappings:', error);
-        setMappingsError(`Failed to load index mappings: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        setIsMappingsLoading(false);
-      }
-    };
+        try {
+          const mappingsData = await elasticsearchService.getIndexMappings(index.name);
+          setMappings(mappingsData);
 
-    loadMappings();
-  }, [elasticsearchService, index.name, activeTab]);
+          // Update cache
+          indexDataCache.current[index.name] = {
+            ...indexDataCache.current[index.name],
+            mappings: mappingsData,
+          };
 
-  // Load settings when the index changes or when settings tab is selected
+          // Mark mappings tab as loaded
+          setTabDataLoaded((prev) => ({ ...prev, mappings: true }));
+        } catch (error) {
+          console.error('Failed to load index mappings:', error);
+          setMappingsError(`Failed to load index mappings: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          setIsMappingsLoading(false);
+        }
+      };
+
+      loadMappings();
+    }
+  }, [elasticsearchService, index.name, activeTab, tabDataLoaded.mappings]);
+
+  // Load settings when viewing settings tab for the first time
   useEffect(() => {
     if (activeTab !== 'settings' || !elasticsearchService.isConnected()) return;
 
-    const loadSettings = async () => {
-      setIsSettingsLoading(true);
-      setSettingsError(null);
+    // Only load if not loaded before
+    if (!tabDataLoaded.settings) {
+      const loadSettings = async () => {
+        setIsSettingsLoading(true);
+        setSettingsError(null);
 
-      try {
-        const settingsData = await elasticsearchService.getIndexSettings(index.name);
-        setSettings(settingsData);
-      } catch (error) {
-        console.error('Failed to load index settings:', error);
-        setSettingsError(`Failed to load index settings: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        setIsSettingsLoading(false);
-      }
-    };
+        try {
+          const settingsData = await elasticsearchService.getIndexSettings(index.name);
+          setSettings(settingsData);
 
-    loadSettings();
-  }, [elasticsearchService, index.name, activeTab]);
+          // Update cache
+          indexDataCache.current[index.name] = {
+            ...indexDataCache.current[index.name],
+            settings: settingsData,
+          };
+
+          // Mark settings tab as loaded
+          setTabDataLoaded((prev) => ({ ...prev, settings: true }));
+        } catch (error) {
+          console.error('Failed to load index settings:', error);
+          setSettingsError(`Failed to load index settings: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          setIsSettingsLoading(false);
+        }
+      };
+
+      loadSettings();
+    }
+  }, [elasticsearchService, index.name, activeTab, tabDataLoaded.settings]);
 
   // Show create document dialog
   const showCreateDocumentDialog = () => {
@@ -377,13 +503,20 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       });
 
       const result: QueryResult = await elasticsearchService.executeQuery(index.name, queryString);
-      setDocuments(
-        result.hits.map((hit) => ({
-          id: hit._id,
-          ...hit._source,
-        }))
-      );
+      const formattedDocs = result.hits.map((hit) => ({
+        id: hit._id,
+        ...hit._source,
+      }));
+
+      setDocuments(formattedDocs);
       setTotalHits(result.total);
+
+      // Update cache
+      indexDataCache.current[index.name] = {
+        ...indexDataCache.current[index.name],
+        documents: formattedDocs,
+        totalHits: result.total,
+      };
     } catch (error) {
       console.error('Failed to refresh documents:', error);
       setError(`Failed to refresh documents: ${error instanceof Error ? error.message : String(error)}`);
@@ -392,34 +525,74 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     }
   };
 
-  // Toggle selection of a document
-  const toggleDocumentSelection = (docId: string) => {
-    setSelectedDocIds((prevSelected) => {
-      const newSelected = new Set(prevSelected);
-      if (newSelected.has(docId)) {
-        newSelected.delete(docId);
+  // Handle document selection
+  const handleSelectDocument = (id: string) => {
+    setSelectedDocIds((prev) => {
+      const newSelection = new Set(prev);
+      if (newSelection.has(id)) {
+        newSelection.delete(id);
       } else {
-        newSelected.add(docId);
+        newSelection.add(id);
       }
-
-      // Update the all selected state
-      setIsAllSelected(newSelected.size === documents.length && documents.length > 0);
-
-      return newSelected;
+      return newSelection;
     });
   };
 
-  // Toggle selection of all documents
-  const toggleSelectAll = () => {
-    if (isAllSelected || selectedDocIds.size === documents.length) {
-      // Deselect all
+  // Handle select all documents
+  const handleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedDocIds(new Set());
+    } else {
+      const allIds = new Set(documents.map((doc) => doc.id));
+      setSelectedDocIds(allIds);
+    }
+    setIsAllSelected(!isAllSelected);
+  };
+
+  // Handle bulk delete of selected documents
+  const handleBulkDelete = async () => {
+    if (selectedDocIds.size === 0) return;
+
+    setIsDeleteConfirmOpen(false);
+
+    try {
+      const docsToDelete = Array.from(selectedDocIds);
+      const deletedCount = await elasticsearchService.deleteDocuments(index.name, docsToDelete);
+
+      showToast(`Deleted ${deletedCount} document${deletedCount !== 1 ? 's' : ''}`, 'success');
+
+      // Refresh the documents list
+      await refreshCurrentTab();
+
+      // Clear selection
       setSelectedDocIds(new Set());
       setIsAllSelected(false);
-    } else {
-      // Select all
-      const allIds = documents.map((doc) => doc.id);
-      setSelectedDocIds(new Set(allIds));
-      setIsAllSelected(true);
+    } catch (error) {
+      console.error('Error deleting documents:', error);
+      showToast(`Failed to delete documents: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    }
+  };
+
+  // Handle deletion of a single document
+  const handleDeleteDocument = async () => {
+    if (!idToDelete) return;
+
+    setIsDeleteConfirmOpen(false);
+
+    try {
+      // Use deleteDocuments with a single-element array
+      await elasticsearchService.deleteDocuments(index.name, [idToDelete]);
+
+      showToast('Document deleted successfully', 'success');
+
+      // Refresh the documents list
+      await refreshCurrentTab();
+
+      // Clear selection
+      setIdToDelete(null);
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      showToast(`Failed to delete document: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -612,7 +785,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     );
   };
 
-  // Add a general refresh function
+  // Update the refreshCurrentTab function to also update the cache
   const refreshCurrentTab = async () => {
     // Show loading indicator based on current tab
     if (activeTab === 'overview') {
@@ -620,14 +793,24 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       if (onRefresh) {
         await onRefresh(index.name);
       }
+      setTabDataLoaded((prev) => ({ ...prev, overview: true }));
     } else if (activeTab === 'documents') {
       await refreshDocuments();
+      setTabDataLoaded((prev) => ({ ...prev, documents: true }));
     } else if (activeTab === 'mappings') {
       setIsMappingsLoading(true);
       setMappingsError(null);
       try {
         const mappingsData = await elasticsearchService.getIndexMappings(index.name);
         setMappings(mappingsData);
+
+        // Update cache
+        indexDataCache.current[index.name] = {
+          ...indexDataCache.current[index.name],
+          mappings: mappingsData,
+        };
+
+        setTabDataLoaded((prev) => ({ ...prev, mappings: true }));
       } catch (error) {
         console.error('Failed to load index mappings:', error);
         setMappingsError(`Failed to load index mappings: ${error instanceof Error ? error.message : String(error)}`);
@@ -640,6 +823,14 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       try {
         const settingsData = await elasticsearchService.getIndexSettings(index.name);
         setSettings(settingsData);
+
+        // Update cache
+        indexDataCache.current[index.name] = {
+          ...indexDataCache.current[index.name],
+          settings: settingsData,
+        };
+
+        setTabDataLoaded((prev) => ({ ...prev, settings: true }));
       } catch (error) {
         console.error('Failed to load index settings:', error);
         setSettingsError(`Failed to load index settings: ${error instanceof Error ? error.message : String(error)}`);
@@ -823,7 +1014,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
             className={`${
               activeTab === 'overview' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
-            onClick={() => setActiveTab('overview')}
+            onClick={() => handleTabChange('overview')}
           >
             Overview
           </button>
@@ -831,7 +1022,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
             className={`${
               activeTab === 'documents' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
-            onClick={() => setActiveTab('documents')}
+            onClick={() => handleTabChange('documents')}
           >
             Documents
           </button>
@@ -839,7 +1030,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
             className={`${
               activeTab === 'mappings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
-            onClick={() => setActiveTab('mappings')}
+            onClick={() => handleTabChange('mappings')}
           >
             Mappings
           </button>
@@ -847,7 +1038,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
             className={`${
               activeTab === 'settings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
-            onClick={() => setActiveTab('settings')}
+            onClick={() => handleTabChange('settings')}
           >
             Settings
           </button>
@@ -909,8 +1100,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                 <div>
                   {selectedDocIds.size > 0 && (
                     <button
-                      onClick={showDeleteSelectedDocumentsConfirmation}
-                      disabled={isDeleting}
+                      onClick={() => setIsDeleteConfirmOpen(true)}
                       className='inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50'
                     >
                       {isDeleting && confirmAction === 'deleteSelectedDocuments' ? (
@@ -956,7 +1146,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                               type='checkbox'
                               className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
                               checked={isAllSelected || (documents.length > 0 && selectedDocIds.size === documents.length)}
-                              onChange={toggleSelectAll}
+                              onChange={handleSelectAll}
                             />
                           </div>
                         </th>
@@ -998,7 +1188,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                                 type='checkbox'
                                 className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
                                 checked={selectedDocIds.has(doc.id)}
-                                onChange={() => toggleDocumentSelection(doc.id)}
+                                onChange={() => handleSelectDocument(doc.id)}
                                 onClick={(e) => e.stopPropagation()} // Prevent row click
                               />
                             </div>
@@ -1125,7 +1315,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                         <svg className='-ml-1 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'>
                           <path
                             fillRule='evenodd'
-                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z'
+                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4z'
                             clipRule='evenodd'
                           />
                         </svg>
@@ -1194,7 +1384,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                         <svg className='-ml-1 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'>
                           <path
                             fillRule='evenodd'
-                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z'
+                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4z'
                             clipRule='evenodd'
                           />
                         </svg>
@@ -1237,6 +1427,62 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
           </div>
         )}
       </div>
+
+      {/* Delete Document Confirmation Modal */}
+      {isDeleteConfirmOpen && (
+        <div className='fixed z-10 inset-0 overflow-y-auto'>
+          <div className='flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0'>
+            <div className='fixed inset-0 transition-opacity' aria-hidden='true'>
+              <div className='absolute inset-0 bg-gray-500 opacity-75'></div>
+            </div>
+            <span className='hidden sm:inline-block sm:align-middle sm:h-screen' aria-hidden='true'>
+              &#8203;
+            </span>
+            <div className='inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full'>
+              <div className='bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4'>
+                <div className='sm:flex sm:items-start'>
+                  <div className='mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10'>
+                    <svg className='h-6 w-6 text-red-600' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
+                      <path
+                        strokeLinecap='round'
+                        strokeLinejoin='round'
+                        strokeWidth='2'
+                        d='M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z'
+                      />
+                    </svg>
+                  </div>
+                  <div className='mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left'>
+                    <h3 className='text-lg leading-6 font-medium text-gray-900'>Confirm Deletion</h3>
+                    <div className='mt-2'>
+                      <p className='text-sm text-gray-500'>
+                        {selectedDocIds.size > 0
+                          ? `Are you sure you want to delete ${selectedDocIds.size} selected document${selectedDocIds.size !== 1 ? 's' : ''}? This action cannot be undone.`
+                          : `Are you sure you want to delete this document? This action cannot be undone.`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className='bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse'>
+                <button
+                  type='button'
+                  className='w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm'
+                  onClick={selectedDocIds.size > 0 ? handleBulkDelete : handleDeleteDocument}
+                >
+                  Delete
+                </button>
+                <button
+                  type='button'
+                  className='mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm'
+                  onClick={() => setIsDeleteConfirmOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
