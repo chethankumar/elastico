@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ElasticsearchService } from '../services/elasticsearch';
 import { QueryResult } from '../types/elasticsearch';
+import { useElasticsearch } from '../contexts/ElasticsearchContext';
 
 /**
  * Page component for executing Elasticsearch queries
@@ -13,12 +13,13 @@ const QueryPage: React.FC = () => {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [availableIndices, setAvailableIndices] = useState<string[]>([]);
 
-  const elasticsearchService = new ElasticsearchService();
+  // Get elasticsearch service from context
+  const { service: elasticsearchService, connectionStatus } = useElasticsearch();
 
-  // Load available indices when component mounts
+  // Load available indices when component mounts or connection changes
   useEffect(() => {
     loadIndices();
-  }, []);
+  }, [connectionStatus]);
 
   const loadIndices = async () => {
     if (!elasticsearchService.isConnected()) {

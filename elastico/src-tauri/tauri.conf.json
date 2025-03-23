@@ -19,11 +19,15 @@
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "center": true
+        "center": true,
+        "label": "main"
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
@@ -36,15 +40,5 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  },
-  "plugins": {
-    "http": {
-      "all": true,
-      "request": true,
-      "scope": [
-        "https://*",
-        "http://*"
-      ]
-    }
   }
 }

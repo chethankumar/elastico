@@ -1,68 +1,95 @@
-import { Client } from '@elastic/elasticsearch';
+import { invoke } from '@tauri-apps/api/core';
 import { 
   ElasticsearchConnection, 
   ElasticsearchIndex, 
   QueryResult,
-  ClusterHealth
+  ClusterHealth,
+  ConnectionResponse
 } from '../types/elasticsearch';
 
 /**
- * Service for interacting with Elasticsearch 
+ * Service for interacting with Elasticsearch via the Tauri backend
  */
 export class ElasticsearchService {
-  private client: Client | null = null;
   private connection: ElasticsearchConnection | null = null;
+  private clusterInfo: { name: string; status: string } | null = null;
 
   /**
-   * Connect to an Elasticsearch instance
+   * Connect to an Elasticsearch instance using the Tauri backend
    * @param connectionConfig - The connection configuration
-   * @returns boolean indicating if connection was successful
+   * @returns Connection response object with details about the connection
    */
-  async connect(connectionConfig: ElasticsearchConnection): Promise<boolean> {
+  async connect(connectionConfig: ElasticsearchConnection): Promise<ConnectionResponse> {
     try {
-      // Create the node options object
-      const nodeOptions: any = {
-        node: `${connectionConfig.ssl ? 'https' : 'http'}://${connectionConfig.host}:${connectionConfig.port}`,
+      // Convert the connection config to the format expected by the backend
+      const backendConfig = {
+        id: connectionConfig.id,
+        name: connectionConfig.name,
+        host: connectionConfig.host,
+        port: connectionConfig.port,
+        username: connectionConfig.username || null,
+        password: connectionConfig.password || null,
+        ssl: connectionConfig.ssl || false,
+        api_key: connectionConfig.apiKey || null,
+        auth_type: connectionConfig.authType
       };
 
-      // Add authentication if needed
-      if (connectionConfig.authType === 'basic' && connectionConfig.username && connectionConfig.password) {
-        nodeOptions.auth = {
-          username: connectionConfig.username,
-          password: connectionConfig.password
-        };
-      } else if (connectionConfig.authType === 'apiKey' && connectionConfig.apiKey) {
-        nodeOptions.auth = {
-          apiKey: connectionConfig.apiKey
-        };
-      }
-
-      // Create the client
-      this.client = new Client(nodeOptions);
+      // Call the Rust backend to connect and get detailed response
+      const response = await invoke<any>('connect_to_elasticsearch', { connection: backendConfig });
       
-      // Test the connection
-      const pingResponse = await this.client.ping();
+      console.log('Elasticsearch connection response:', response);
       
-      if (pingResponse) {
+      if (response && response.connected) {
+        // Store connection details
         this.connection = connectionConfig;
-        return true;
+        this.clusterInfo = {
+          name: response.cluster_name || 'Unknown Cluster',
+          status: response.status || 'unknown'
+        };
+        
+        return {
+          connected: true,
+          clusterName: response.cluster_name,
+          status: response.status,
+          health: response.health || null,
+          error: null
+        };
       }
       
-      return false;
-    } catch (error) {
+      // If we reached here but don't have a clear error, return a generic failure
+      return {
+        connected: false,
+        clusterName: null,
+        status: null,
+        health: null,
+        error: 'Failed to connect to Elasticsearch for unknown reasons'
+      };
+    } catch (error: any) {
       console.error('Failed to connect to Elasticsearch:', error);
-      this.client = null;
       this.connection = null;
-      return false;
+      this.clusterInfo = null;
+      
+      return {
+        connected: false,
+        clusterName: null,
+        status: null,
+        health: null,
+        error: error?.toString() || 'Unknown connection error'
+      };
     }
   }
 
   /**
-   * Disconnect from Elasticsearch
+   * Disconnect from Elasticsearch using the Tauri backend
    */
-  disconnect(): void {
-    this.client = null;
-    this.connection = null;
+  async disconnect(): Promise<void> {
+    try {
+      await invoke('disconnect_from_elasticsearch');
+      this.connection = null;
+      this.clusterInfo = null;
+    } catch (error) {
+      console.error('Failed to disconnect from Elasticsearch:', error);
+    }
   }
 
   /**
@@ -70,7 +97,7 @@ export class ElasticsearchService {
    * @returns boolean indicating if connected
    */
   isConnected(): boolean {
-    return this.client !== null;
+    return this.connection !== null;
   }
 
   /**
@@ -80,31 +107,38 @@ export class ElasticsearchService {
   getCurrentConnection(): ElasticsearchConnection | null {
     return this.connection;
   }
+  
+  /**
+   * Get information about the connected cluster
+   * @returns Object containing cluster name and status, or null if not connected
+   */
+  getClusterInfo(): { name: string; status: string } | null {
+    return this.clusterInfo;
+  }
 
   /**
-   * Get all indices in the Elasticsearch cluster
+   * Get all indices in the Elasticsearch cluster using the Tauri backend
    * @returns Array of index information
    */
   async getIndices(): Promise<ElasticsearchIndex[]> {
-    if (!this.client) {
+    if (!this.isConnected()) {
       throw new Error('Not connected to Elasticsearch');
     }
 
     try {
-      const { body: catResponse } = await this.client.cat.indices({ 
-        format: 'json', 
-        v: true
-      }) as any;
+      // Call the Rust backend to get indices
+      const indices = await invoke<any[]>('get_elasticsearch_indices');
       
-      return catResponse.map((index: any) => ({
-        name: index.index,
+      // Convert from snake_case to camelCase
+      return indices.map(index => ({
+        name: index.name,
         health: index.health,
         status: index.status,
-        docsCount: parseInt(index['docs.count'] || '0', 10),
-        docsDeleted: parseInt(index['docs.deleted'] || '0', 10),
-        primaryShards: parseInt(index.pri || '0', 10),
-        replicaShards: parseInt(index.rep || '0', 10),
-        storageSize: index['store.size'] || '0b'
+        docsCount: index.docs_count,
+        docsDeleted: index.docs_deleted,
+        primaryShards: index.primary_shards,
+        replicaShards: index.replica_shards,
+        storageSize: index.storage_size
       }));
     } catch (error) {
       console.error('Failed to get indices:', error);
@@ -113,33 +147,31 @@ export class ElasticsearchService {
   }
 
   /**
-   * Execute a query against Elasticsearch
+   * Execute a query against Elasticsearch using the Tauri backend
    * @param index - The index to query
    * @param query - The query to execute (JSON string)
    * @returns Query results
    */
   async executeQuery(index: string, query: string): Promise<QueryResult> {
-    if (!this.client) {
+    if (!this.isConnected()) {
       throw new Error('Not connected to Elasticsearch');
     }
 
     try {
-      const queryObject = JSON.parse(query);
-      const { body } = await this.client.search({
-        index,
-        ...queryObject
-      }) as any;
-
+      // Call the Rust backend to execute the query
+      const result = await invoke<any>('execute_elasticsearch_query', { index, query });
+      
+      // Convert from snake_case to camelCase
       return {
-        hits: body.hits.hits,
-        total: typeof body.hits.total === 'object' ? body.hits.total.value : body.hits.total,
-        took: body.took,
-        timedOut: body.timed_out,
+        hits: result.hits,
+        total: result.total,
+        took: result.took,
+        timedOut: result.timed_out,
         shards: {
-          total: body._shards.total,
-          successful: body._shards.successful,
-          failed: body._shards.failed,
-          skipped: body._shards.skipped || 0
+          total: result.shards.total,
+          successful: result.shards.successful,
+          failed: result.shards.failed,
+          skipped: result.shards.skipped
         }
       };
     } catch (error) {
@@ -149,28 +181,30 @@ export class ElasticsearchService {
   }
 
   /**
-   * Get cluster health information
+   * Get cluster health information using the Tauri backend
    * @returns Cluster health information
    */
   async getClusterHealth(): Promise<ClusterHealth> {
-    if (!this.client) {
+    if (!this.isConnected()) {
       throw new Error('Not connected to Elasticsearch');
     }
 
     try {
-      const { body } = await this.client.cluster.health() as any;
+      // Call the Rust backend to get cluster health
+      const health = await invoke<any>('get_elasticsearch_cluster_health');
       
+      // Convert from snake_case to camelCase
       return {
-        clusterName: body.cluster_name,
-        status: body.status,
-        numberOfNodes: body.number_of_nodes,
-        numberOfDataNodes: body.number_of_data_nodes,
-        activePrimaryShards: body.active_primary_shards,
-        activeShards: body.active_shards,
-        relocatingShards: body.relocating_shards,
-        initializingShards: body.initializing_shards,
-        unassignedShards: body.unassigned_shards,
-        pendingTasks: body.number_of_pending_tasks
+        clusterName: health.cluster_name,
+        status: health.status,
+        numberOfNodes: health.number_of_nodes,
+        numberOfDataNodes: health.number_of_data_nodes,
+        activePrimaryShards: health.active_primary_shards,
+        activeShards: health.active_shards,
+        relocatingShards: health.relocating_shards,
+        initializingShards: health.initializing_shards,
+        unassignedShards: health.unassigned_shards,
+        pendingTasks: health.pending_tasks
       };
     } catch (error) {
       console.error('Failed to get cluster health:', error);

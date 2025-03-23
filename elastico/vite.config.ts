@@ -22,22 +22,4 @@ export default defineConfig({
     // produce sourcemaps for debug builds
     sourcemap: true,
   },
-
-  // Fix for Elasticsearch client
-  optimizeDeps: {
-    esbuildOptions: {
-      define: {
-        global: 'globalThis',
-      },
-    },
-  },
-  resolve: {
-    alias: {
-      // Provide browser-compatible versions of Node.js modules
-      'node:events': 'events',
-      events: 'events',
-      util: 'util',
-      buffer: 'buffer',
-    },
-  },
 }); 

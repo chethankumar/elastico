@@ -14,6 +14,17 @@ export interface ElasticsearchConnection {
 }
 
 /**
+ * Response from trying to connect to Elasticsearch
+ */
+export interface ConnectionResponse {
+  connected: boolean;
+  clusterName: string | null;
+  status: string | null;
+  health: any | null;
+  error: string | null;
+}
+
+/**
  * Represents index information from Elasticsearch
  */
 export interface ElasticsearchIndex {

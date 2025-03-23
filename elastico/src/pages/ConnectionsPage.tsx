@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ElasticsearchConnection } from '../types/elasticsearch';
 import { ConnectionManager } from '../services/connectionManager';
-import { ElasticsearchService } from '../services/elasticsearch';
+import { useElasticsearch } from '../contexts/ElasticsearchContext';
 import ConnectionList from '../components/ConnectionList';
 import ConnectionForm from '../components/ConnectionForm';
 
@@ -12,12 +12,12 @@ const ConnectionsPage: React.FC = () => {
   const [connections, setConnections] = useState<ElasticsearchConnection[]>([]);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ElasticsearchConnection | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  // Get elasticsearch service and state from context
+  const { service: elasticsearchService, connectionStatus, setConnectionStatus, isConnecting, setIsConnecting, connectionError, setConnectionError } = useElasticsearch();
 
   // Initialize services
   const connectionManager = new ConnectionManager();
-  const elasticsearchService = new ElasticsearchService();
 
   // Load connections when component mounts
   useEffect(() => {
@@ -51,16 +51,18 @@ const ConnectionsPage: React.FC = () => {
 
     setIsConnecting(true);
     setConnectionError(null);
+    setConnectionStatus(null);
 
     try {
-      const isConnected = await elasticsearchService.connect(connection);
+      const response = await elasticsearchService.connect(connection);
+      setConnectionStatus(response);
 
-      if (isConnected) {
+      if (response.connected) {
         // Navigate to the dashboard or index list page
-        console.log('Connected successfully!');
-        // Navigation will be implemented later
+        console.log('Connected successfully!', response);
+        // Show success message with cluster info
       } else {
-        setConnectionError('Could not connect to Elasticsearch. Please check your connection details.');
+        setConnectionError(response.error || 'Could not connect to Elasticsearch. Please check your connection details.');
       }
     } catch (error) {
       console.error('Connection error:', error);
@@ -105,6 +107,15 @@ const ConnectionsPage: React.FC = () => {
       {connectionError && (
         <div className='mb-6 p-4 bg-red-50 border border-red-200 rounded-md'>
           <p className='text-red-700'>{connectionError}</p>
+        </div>
+      )}
+
+      {connectionStatus && connectionStatus.connected && (
+        <div className='mb-6 p-4 bg-green-50 border border-green-200 rounded-md'>
+          <p className='text-green-700'>
+            Connected to {connectionStatus.clusterName}
+            {connectionStatus.status && ` (Status: ${connectionStatus.status})`}
+          </p>
         </div>
       )}
 
