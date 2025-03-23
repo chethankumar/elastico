@@ -22,6 +22,9 @@ export class ConnectionManager {
       const savedConnections = localStorage.getItem(CONNECTIONS_STORAGE_KEY);
       if (savedConnections) {
         this.connections = JSON.parse(savedConnections);
+        console.log('Loaded connections from storage:', this.connections);
+      } else {
+        console.log('No connections found in storage');
       }
     } catch (error) {
       console.error('Failed to load connections from storage:', error);
@@ -35,6 +38,7 @@ export class ConnectionManager {
   private saveConnections(): void {
     try {
       localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(this.connections));
+      console.log('Saved connections to storage:', this.connections);
     } catch (error) {
       console.error('Failed to save connections to storage:', error);
     }
@@ -45,6 +49,7 @@ export class ConnectionManager {
    * @returns Array of connection configurations
    */
   getAllConnections(): ElasticsearchConnection[] {
+    console.log('Getting all connections:', this.connections);
     return [...this.connections];
   }
 
@@ -54,7 +59,9 @@ export class ConnectionManager {
    * @returns The connection or undefined if not found
    */
   getConnection(id: string): ElasticsearchConnection | undefined {
-    return this.connections.find(conn => conn.id === id);
+    const connection = this.connections.find(conn => conn.id === id);
+    console.log(`Getting connection with id ${id}:`, connection);
+    return connection;
   }
 
   /**
@@ -68,6 +75,7 @@ export class ConnectionManager {
       id: nanoid()
     };
 
+    console.log('Adding new connection:', newConnection);
     this.connections.push(newConnection);
     this.saveConnections();
     
@@ -81,9 +89,11 @@ export class ConnectionManager {
    * @returns The updated connection or null if not found
    */
   updateConnection(id: string, updatedConnection: Partial<Omit<ElasticsearchConnection, 'id'>>): ElasticsearchConnection | null {
+    console.log(`Updating connection with id ${id}:`, updatedConnection);
     const index = this.connections.findIndex(conn => conn.id === id);
     
     if (index === -1) {
+      console.log(`Connection with id ${id} not found`);
       return null;
     }
 
@@ -92,6 +102,7 @@ export class ConnectionManager {
       ...updatedConnection
     };
 
+    console.log(`Updated connection:`, this.connections[index]);
     this.saveConnections();
     
     return this.connections[index];
@@ -103,14 +114,17 @@ export class ConnectionManager {
    * @returns Boolean indicating if the connection was deleted
    */
   deleteConnection(id: string): boolean {
+    console.log(`Deleting connection with id ${id}`);
     const initialLength = this.connections.length;
     this.connections = this.connections.filter(conn => conn.id !== id);
     
     if (initialLength !== this.connections.length) {
       this.saveConnections();
+      console.log(`Connection with id ${id} deleted successfully`);
       return true;
     }
     
+    console.log(`Connection with id ${id} not found for deletion`);
     return false;
   }
 } 
