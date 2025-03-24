@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { useElasticsearch } from '../contexts/ElasticsearchContext';
 import { ConnectionManager } from '../services/connectionManager';
 import { ElasticsearchConnection } from '../types/elasticsearch';
-import ConnectionForm from './ConnectionForm';
+import ConnectionDialog from './ConnectionDialog';
 
 // Dialog component for modals
 const Dialog: React.FC<{
@@ -371,14 +371,10 @@ const AppHeader: React.FC = () => {
       </Dialog>
 
       {/* Add Connection Dialog */}
-      <Dialog title='Add Connection' isOpen={isAddDialogOpen} onClose={() => setIsAddDialogOpen(false)}>
-        <ConnectionForm onSave={handleSaveConnection} onCancel={() => setIsAddDialogOpen(false)} />
-      </Dialog>
+      <ConnectionDialog isOpen={isAddDialogOpen} onClose={() => setIsAddDialogOpen(false)} onSave={handleSaveConnection} />
 
       {/* Edit Connection Dialog */}
-      <Dialog title='Edit Connection' isOpen={isEditDialogOpen} onClose={() => setIsEditDialogOpen(false)}>
-        <ConnectionForm onSave={handleSaveConnection} onCancel={() => setIsEditDialogOpen(false)} initialValues={editingConnection || undefined} />
-      </Dialog>
+      <ConnectionDialog isOpen={isEditDialogOpen} onClose={() => setIsEditDialogOpen(false)} onSave={handleSaveConnection} initialValues={editingConnection || undefined} isEditing={true} />
     </header>
   );
 };

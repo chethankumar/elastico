@@ -3,7 +3,7 @@ import { ElasticsearchConnection } from '../types/elasticsearch';
 import { ConnectionManager } from '../services/connectionManager';
 import { useElasticsearch } from '../contexts/ElasticsearchContext';
 import ConnectionList from '../components/ConnectionList';
-import ConnectionForm from '../components/ConnectionForm';
+import ConnectionDialog from '../components/ConnectionDialog';
 
 /**
  * Page component for managing Elasticsearch connections
@@ -125,11 +125,9 @@ const ConnectionsPage: React.FC = () => {
         </div>
       )}
 
-      {isFormVisible ? (
-        <ConnectionForm onSave={handleSaveConnection} onCancel={handleCancelForm} initialValues={editingConnection || undefined} />
-      ) : (
-        <ConnectionList connections={connections} onConnect={handleConnectToElasticsearch} onEdit={handleEditConnection} onDelete={handleDeleteConnection} />
-      )}
+      <ConnectionList connections={connections} onConnect={handleConnectToElasticsearch} onEdit={handleEditConnection} onDelete={handleDeleteConnection} />
+
+      <ConnectionDialog isOpen={isFormVisible} onClose={handleCancelForm} onSave={handleSaveConnection} initialValues={editingConnection || undefined} isEditing={!!editingConnection} />
     </div>
   );
 };
