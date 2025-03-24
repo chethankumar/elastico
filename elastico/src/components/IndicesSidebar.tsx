@@ -306,8 +306,8 @@ const IndicesSidebar: React.FC<IndicesSidebarProps> = ({ onSelectIndex, selected
         </div>
       )}
 
-      <div className='px-4 py-3 border-b border-gray-200'>
-        <h2 className='text-lg font-medium text-gray-900'>Indices</h2>
+      <div className='px-4 py-2 border-b border-gray-200'>
+        <h2 className='text-md font-medium text-gray-900'>Indices</h2>
       </div>
 
       <div className='px-3 py-2 border-b border-gray-200'>

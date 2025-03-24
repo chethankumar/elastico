@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ElasticsearchIndex, QueryResult } from '../types/elasticsearch';
 import { useElasticsearch } from '../contexts/ElasticsearchContext';
 import { useToast } from '../contexts/ToastContext';
+import JsonEditor from './JsonEditor';
 
 // Tab interface definitions
 type TabType = 'overview' | 'documents' | 'mappings' | 'settings';
@@ -894,15 +895,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
               <label htmlFor='docJSON' className='block text-sm font-medium text-gray-700 mb-1'>
                 Document JSON
               </label>
-              <textarea
-                id='docJSON'
-                value={newDocJSON}
-                onChange={(e) => setNewDocJSON(e.target.value)}
-                rows={12}
-                className='w-full font-mono border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm'
-                placeholder='{"field1": "value1", "field2": 42}'
-              />
-              {jsonError && <p className='mt-1 text-sm text-red-600'>{jsonError}</p>}
+              <JsonEditor value={newDocJSON} onChange={setNewDocJSON} height={300} error={jsonError} />
             </div>
 
             <div className='flex justify-end space-x-3'>
