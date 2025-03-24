@@ -67,7 +67,9 @@ const ConnectionsList: React.FC<{
   onDelete: (id: string) => void;
   onConnect: (id: string) => void;
   activeConnectionId?: string;
-}> = ({ connections, onEdit, onDelete, onConnect, activeConnectionId }) => {
+  isConnecting: boolean;
+  connectingId?: string;
+}> = ({ connections, onEdit, onDelete, onConnect, activeConnectionId, isConnecting, connectingId }) => {
   console.log('Rendering ConnectionsList with connections:', connections);
   console.log('Active connection ID:', activeConnectionId);
 
@@ -99,6 +101,14 @@ const ConnectionsList: React.FC<{
                       <span className='w-2 h-2 mr-2 bg-green-500 rounded-full'></span>
                       Connected
                     </span>
+                  ) : isConnecting && connectingId === connection.id ? (
+                    <button disabled className='inline-flex items-center bg-purple-500 text-white font-medium py-1.5 px-3 rounded-md text-sm opacity-85'>
+                      <svg className='animate-spin -ml-1 mr-2 h-4 w-4 text-white' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                        <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                        <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                      </svg>
+                      Connecting...
+                    </button>
                   ) : (
                     <button
                       onClick={(e) => {
@@ -120,6 +130,7 @@ const ConnectionsList: React.FC<{
                         onEdit(connection.id);
                       }}
                       className='inline-flex items-center px-2 py-1 border border-gray-300 text-sm font-medium rounded-md text-indigo-600 bg-white hover:bg-gray-50'
+                      disabled={isConnecting && connectingId === connection.id}
                     >
                       Edit
                     </button>
@@ -129,6 +140,7 @@ const ConnectionsList: React.FC<{
                         onDelete(connection.id);
                       }}
                       className='inline-flex items-center px-2 py-1 border border-gray-300 text-sm font-medium rounded-md text-red-600 bg-white hover:bg-gray-50'
+                      disabled={isConnecting && connectingId === connection.id}
                     >
                       Delete
                     </button>
@@ -152,6 +164,7 @@ const AppHeader: React.FC = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ElasticsearchConnection | null>(null);
   const [connections, setConnections] = useState<ElasticsearchConnection[]>([]);
+  const [connectingId, setConnectingId] = useState<string | undefined>(undefined);
 
   const { service: elasticsearchService, connectionStatus, setConnectionStatus, isConnecting, setIsConnecting, connectionError, setConnectionError } = useElasticsearch();
 
@@ -183,6 +196,7 @@ const AppHeader: React.FC = () => {
     setIsConnecting(true);
     setConnectionError(null);
     setConnectionStatus(null);
+    setConnectingId(connectionId);
 
     try {
       console.log('Attempting to connect with config:', connection);
@@ -201,6 +215,7 @@ const AppHeader: React.FC = () => {
       setConnectionError(`Connection error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsConnecting(false);
+      setConnectingId(undefined);
     }
   };
 
@@ -352,6 +367,8 @@ const AppHeader: React.FC = () => {
               onDelete={handleDeleteConnection}
               onConnect={handleConnect}
               activeConnectionId={elasticsearchService.getCurrentConnection()?.id}
+              isConnecting={isConnecting}
+              connectingId={connectingId}
             />
           </div>
         ) : (
