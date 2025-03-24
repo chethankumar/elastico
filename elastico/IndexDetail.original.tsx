@@ -94,10 +94,6 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
   const [searchPage, setSearchPage] = useState(1);
   const [searchJsonError, setSearchJsonError] = useState<string | null>(null);
 
-  // Add these state variables at the top with the other state variables
-  const [searchSortField, setSearchSortField] = useState<string | null>(null);
-  const [searchSortOrder, setSearchSortOrder] = useState<'asc' | 'desc'>('asc');
-
   // Use this flag to track if data for each tab has been loaded at least once
   const [tabDataLoaded, setTabDataLoaded] = useState<Record<TabType, boolean>>({
     overview: false,
@@ -119,72 +115,6 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       }
     >
   >({});
-
-  // Pagination helpers
-  const generatePaginationItems = (currentPage: number, totalPages: number, onPageClick: (page: number) => void) => {
-    const items = [];
-    // Logic to display a reasonable number of pagination items
-    const maxPagesToShow = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
-    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
-
-    if (endPage - startPage + 1 < maxPagesToShow) {
-      startPage = Math.max(1, endPage - maxPagesToShow + 1);
-    }
-
-    // First page
-    if (startPage > 1) {
-      items.push(
-        <button key='first' onClick={() => onPageClick(1)} className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50'>
-          1
-        </button>
-      );
-      if (startPage > 2) {
-        items.push(
-          <span key='ellipsis1' className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700'>
-            ...
-          </span>
-        );
-      }
-    }
-
-    // Pages
-    for (let i = startPage; i <= endPage; i++) {
-      items.push(
-        <button
-          key={i}
-          onClick={() => onPageClick(i)}
-          className={`relative inline-flex items-center px-4 py-2 border ${
-            currentPage === i ? 'z-10 bg-purple-50 border-purple-500 text-purple-600' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-          } text-sm font-medium`}
-        >
-          {i}
-        </button>
-      );
-    }
-
-    // Last page
-    if (endPage < totalPages) {
-      if (endPage < totalPages - 1) {
-        items.push(
-          <span key='ellipsis2' className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700'>
-            ...
-          </span>
-        );
-      }
-      items.push(
-        <button
-          key='last'
-          onClick={() => onPageClick(totalPages)}
-          className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50'
-        >
-          {totalPages}
-        </button>
-      );
-    }
-
-    return items;
-  };
 
   const { service: elasticsearchService } = useElasticsearch();
   const { showToast } = useToast();
@@ -1052,40 +982,70 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     }
   };
 
-  // Handle sorting for search results
-  const handleSearchSort = (field: string) => {
-    // If clicking the same field, toggle sort order
-    if (searchSortField === field) {
-      setSearchSortOrder(searchSortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      // If clicking a new field, set it as sort field with default 'asc' order
-      setSearchSortField(field);
-      setSearchSortOrder('asc');
+  // Pagination helpers
+  const generatePaginationItems = (currentPage: number, totalPages: number, onPageClick: (page: number) => void) => {
+    const items = [];
+    // Logic to display a reasonable number of pagination items
+    const maxPagesToShow = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+
+    if (endPage - startPage + 1 < maxPagesToShow) {
+      startPage = Math.max(1, endPage - maxPagesToShow + 1);
     }
 
-    // Sort the results
-    const sortedResults = [...searchResults].sort((a, b) => {
-      // Handle null or undefined values
-      if (a[field] == null) return 1;
-      if (b[field] == null) return -1;
-
-      // String comparison
-      if (typeof a[field] === 'string' && typeof b[field] === 'string') {
-        return searchSortOrder === 'asc' ? a[field].localeCompare(b[field]) : b[field].localeCompare(a[field]);
+    // First page
+    if (startPage > 1) {
+      items.push(
+        <button key='first' onClick={() => onPageClick(1)} className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50'>
+          1
+        </button>
+      );
+      if (startPage > 2) {
+        items.push(
+          <span key='ellipsis1' className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700'>
+            ...
+          </span>
+        );
       }
+    }
 
-      // Number comparison
-      if (typeof a[field] === 'number' && typeof b[field] === 'number') {
-        return searchSortOrder === 'asc' ? a[field] - b[field] : b[field] - a[field];
+    // Pages
+    for (let i = startPage; i <= endPage; i++) {
+      items.push(
+        <button
+          key={i}
+          onClick={() => onPageClick(i)}
+          className={`relative inline-flex items-center px-4 py-2 border ${
+            currentPage === i ? 'z-10 bg-purple-50 border-purple-500 text-purple-600' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+          } text-sm font-medium`}
+        >
+          {i}
+        </button>
+      );
+    }
+
+    // Last page
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        items.push(
+          <span key='ellipsis2' className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700'>
+            ...
+          </span>
+        );
       }
+      items.push(
+        <button
+          key='last'
+          onClick={() => onPageClick(totalPages)}
+          className='relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50'
+        >
+          {totalPages}
+        </button>
+      );
+    }
 
-      // Default comparison (convert to string)
-      const aStr = String(a[field]);
-      const bStr = String(b[field]);
-      return searchSortOrder === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
-    });
-
-    setSearchResults(sortedResults);
+    return items;
   };
 
   return (
@@ -1142,9 +1102,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
               <label htmlFor='docJSON' className='block text-sm font-medium text-gray-700 mb-1'>
                 Document JSON
               </label>
-              <div className='rounded-lg overflow-hidden'>
-                <JsonEditor value={newDocJSON} onChange={setNewDocJSON} height={300} error={jsonError} />
-              </div>
+              <JsonEditor value={newDocJSON} onChange={setNewDocJSON} height={300} error={jsonError} />
             </div>
 
             <div className='flex justify-end space-x-3'>
@@ -1298,7 +1256,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       {/* Content area */}
       <div className='flex-1 overflow-hidden flex'>
         {/* Main content based on active tab */}
-        <div className={`flex-1 overflow-auto ${(activeTab === 'documents' || activeTab === 'search') && selectedDoc ? 'w-2/3' : 'w-full'}`}>
+        <div className='flex-1 overflow-auto'>
           {activeTab === 'overview' && (
             <div className='p-6'>
               <h3 className='text-lg font-medium text-gray-900 mb-4'>Index Overview</h3>
@@ -1516,15 +1474,13 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
           )}
 
           {activeTab === 'search' && (
-            <div className='p-6 h-full flex flex-col'>
+            <div className='p-6'>
               <h3 className='text-lg font-medium text-gray-900 mb-4'>Search</h3>
               <div className='mb-4'>
                 <label htmlFor='searchQuery' className='block text-sm font-medium text-gray-700 mb-1'>
                   Search Query
                 </label>
-                <div className='rounded-lg overflow-hidden'>
-                  <JsonEditor value={searchQuery} onChange={setSearchQuery} height={300} error={searchJsonError} />
-                </div>
+                <JsonEditor value={searchQuery} onChange={setSearchQuery} height={300} error={searchJsonError} />
               </div>
               <div className='flex justify-end space-x-3'>
                 <button
@@ -1553,27 +1509,27 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                 </button>
               </div>
               {isSearching ? (
-                <div className='flex-1 flex justify-center items-center'>
+                <div className='flex justify-center items-center h-40'>
                   <svg className='animate-spin h-8 w-8 text-purple-500' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
                     <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
                     <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
                   </svg>
                 </div>
               ) : searchError ? (
-                <div className='flex-1 p-4 bg-red-50 border border-red-200 rounded-md'>
+                <div className='p-4 bg-red-50 border border-red-200 rounded-md'>
                   <p className='text-red-600'>{searchError}</p>
                 </div>
               ) : searchResults.length === 0 ? (
-                <div className='flex-1 flex justify-center items-center h-40'>
-                  <p className='text-gray-500'>No results found. Try a different search query.</p>
+                <div className='flex justify-center items-center h-full'>
+                  <p className='text-gray-500'>No results found.</p>
                 </div>
               ) : (
-                <div className='flex-1 flex flex-col overflow-hidden'>
+                <div className='h-full flex flex-col'>
                   {/* Search results toolbar */}
-                  <div className='px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center shadow-sm'>
+                  <div className='px-4 py-2 bg-gray-50 border-b border-gray-200 flex justify-between items-center'>
                     <div className='flex items-center'>
-                      <span className='text-sm font-medium text-gray-700'>
-                        {searchTotalHits} result{searchTotalHits !== 1 ? 's' : ''}
+                      <span className='text-sm text-gray-500 mr-2'>
+                        {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
                       </span>
                     </div>
                     <div>
@@ -1603,58 +1559,65 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                   </div>
 
                   {/* Search results table */}
-                  <div className='flex-1 overflow-auto'>
-                    <table className='min-w-full divide-y divide-gray-200'>
-                      <thead className='bg-gray-50 sticky top-0 z-10'>
-                        <tr>
-                          <th scope='col' className='px-4 py-3 w-10'>
-                            <div className='flex items-center'>
-                              <input
-                                type='checkbox'
-                                className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
-                                checked={isAllSelected || (searchResults.length > 0 && selectedDocIds.size === searchResults.length)}
-                                onChange={handleSelectAll}
-                              />
-                            </div>
-                          </th>
-                          <th
-                            scope='col'
-                            className='px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 w-1/6'
-                            onClick={() => handleSearchSort('id')}
-                          >
-                            <span className='flex items-center'>
-                              ID
-                              {searchSortField === 'id' && (
-                                <svg className={`ml-1 h-4 w-4 ${searchSortOrder === 'asc' ? 'transform rotate-180' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
-                                  <path fillRule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clipRule='evenodd' />
-                                </svg>
-                              )}
-                            </span>
-                          </th>
-                          {fields.map((field) => {
-                            // Determine column width based on field type or name
-                            let widthClass = '';
-
-                            // Example of custom widths based on field name/type
-                            if (field === 'name' || field === 'title') {
-                              widthClass = 'w-1/4';
-                            } else if (field === 'description' || field === 'content') {
-                              widthClass = 'w-1/3';
-                            } else {
-                              widthClass = 'w-1/6';
-                            }
-
-                            return (
+                  <div className='flex-1 overflow-x-auto'>
+                    {isLoading ? (
+                      <div className='flex justify-center items-center h-full'>
+                        <svg className='animate-spin h-8 w-8 text-purple-500' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                          <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                          <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                        </svg>
+                      </div>
+                    ) : error ? (
+                      <div className='flex justify-center items-center h-full'>
+                        <p className='text-red-500'>{error}</p>
+                      </div>
+                    ) : searchResults.length === 0 ? (
+                      <div className='flex justify-center items-center h-full'>
+                        <p className='text-gray-500'>No results found.</p>
+                      </div>
+                    ) : (
+                      <table className='min-w-full divide-y divide-gray-200'>
+                        <thead className='bg-gray-50'>
+                          <tr>
+                            <th scope='col' className='px-4 py-3 w-10'>
+                              <div className='flex items-center'>
+                                <input
+                                  type='checkbox'
+                                  className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
+                                  checked={isAllSelected || (searchResults.length > 0 && selectedDocIds.size === searchResults.length)}
+                                  onChange={handleSelectAll}
+                                />
+                              </div>
+                            </th>
+                            <th
+                              scope='col'
+                              className='px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100'
+                              onClick={() => handleSort('id')}
+                            >
+                              <span className='flex items-center'>
+                                ID
+                                {sortField === 'id' && (
+                                  <svg className={`ml-1 h-4 w-4 ${sortOrder === 'asc' ? 'transform rotate-180' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
+                                    <path
+                                      fillRule='evenodd'
+                                      d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z'
+                                      clipRule='evenodd'
+                                    />
+                                  </svg>
+                                )}
+                              </span>
+                            </th>
+                            {fields.map((field) => (
                               <th
                                 key={field}
                                 scope='col'
-                                className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${widthClass}`}
-                                onClick={() => handleSearchSort(field)}
+                                className='px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100'
+                                onClick={() => handleSort(field)}
                               >
                                 <span className='flex items-center'>
                                   {field}
-                                  {searchSortField === field && (
-                                    <svg className={`ml-1 h-4 w-4 ${searchSortOrder === 'asc' ? 'transform rotate-180' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
+                                  {sortField === field && (
+                                    <svg className={`ml-1 h-4 w-4 ${sortOrder === 'asc' ? 'transform rotate-180' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
                                       <path
                                         fillRule='evenodd'
                                         d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z'
@@ -1664,44 +1627,41 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                                   )}
                                 </span>
                               </th>
-                            );
-                          })}
-                        </tr>
-                      </thead>
-                      <tbody className='bg-white divide-y divide-gray-200'>
-                        {searchResults.map((doc) => (
-                          <tr
-                            key={doc.id}
-                            className={`hover:bg-gray-50 ${selectedDoc?.id === doc.id ? 'bg-purple-50' : ''} ${selectedDocIds.has(doc.id) ? 'bg-purple-50' : ''}`}
-                            onClick={() => setSelectedDoc(doc)}
-                          >
-                            <td className='px-4 py-4 whitespace-nowrap' onClick={(e) => e.stopPropagation()}>
-                              <div className='flex items-center'>
-                                <input
-                                  type='checkbox'
-                                  className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
-                                  checked={selectedDocIds.has(doc.id)}
-                                  onChange={() => handleSelectDocument(doc.id)}
-                                />
-                              </div>
-                            </td>
-                            <td className='px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900'>
-                              {doc.id ? doc.id.toString().substring(0, 10) + (doc.id.toString().length > 10 ? '...' : '') : 'N/A'}
-                            </td>
-                            {fields.map((field) => (
-                              <td key={field} className='px-6 py-4 whitespace-nowrap text-sm text-gray-500'>
-                                {renderFieldValue(doc[field])}
-                              </td>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className='bg-white divide-y divide-gray-200'>
+                          {searchResults.map((doc) => (
+                            <tr key={doc.id} className={`hover:bg-gray-50 ${selectedDoc?.id === doc.id ? 'bg-purple-50' : ''} ${selectedDocIds.has(doc.id) ? 'bg-purple-50' : ''}`}>
+                              <td className='px-4 py-4 whitespace-nowrap'>
+                                <div className='flex items-center'>
+                                  <input
+                                    type='checkbox'
+                                    className='h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded'
+                                    checked={selectedDocIds.has(doc.id)}
+                                    onChange={() => handleSelectDocument(doc.id)}
+                                    onClick={(e) => e.stopPropagation()} // Prevent row click
+                                  />
+                                </div>
+                              </td>
+                              <td className='px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 cursor-pointer' onClick={() => setSelectedDoc(doc)}>
+                                {doc.id ? doc.id.toString().substring(0, 10) + '...' : 'N/A'}
+                              </td>
+                              {fields.map((field) => (
+                                <td key={field} className='px-6 py-4 whitespace-nowrap text-sm text-gray-500 cursor-pointer' onClick={() => setSelectedDoc(doc)}>
+                                  {renderFieldValue(doc[field])}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
 
                   {/* Search pagination */}
                   {searchResults.length > 0 && (
-                    <div className='border-t border-gray-200 px-4 py-3 flex items-center justify-between bg-white shadow-sm'>
+                    <div className='border-t border-gray-200 px-4 py-3 flex items-center justify-between bg-white'>
                       <div className='flex-1 flex justify-between sm:hidden'>
                         <button
                           onClick={() => goToSearchPage(searchPage - 1)}
@@ -1896,10 +1856,10 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
           )}
         </div>
 
-        {/* Document Details Panel */}
-        {selectedDoc && (activeTab === 'documents' || activeTab === 'search') && (
+        {/* Document details panel (shown when a document is selected) */}
+        {activeTab === 'documents' && selectedDoc && (
           <div className='w-1/3 border-l border-gray-200 bg-gray-50 overflow-auto'>
-            <div className='sticky top-0 bg-gray-50 border-b border-gray-200 p-4 flex justify-between items-center z-10 shadow-sm'>
+            <div className='sticky top-0 bg-gray-50 border-b border-gray-200 p-4 flex justify-between items-center'>
               <h3 className='text-lg font-medium text-gray-900'>Document Detail</h3>
               <button onClick={() => setSelectedDoc(null)} className='text-gray-400 hover:text-gray-500'>
                 <svg className='h-6 w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
@@ -1908,54 +1868,12 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
               </button>
             </div>
             <div className='p-4'>
-              <div className='rounded-lg bg-white shadow-sm overflow-hidden border border-gray-200'>
-                <div className='px-4 py-3 sm:px-6 bg-gray-50 border-b border-gray-200'>
-                  <h3 className='text-sm font-medium text-gray-900'>Document ID</h3>
-                  <p className='mt-1 max-w-2xl text-sm text-gray-500 break-all'>{selectedDoc.id}</p>
+              <div className='rounded-md bg-white shadow-sm overflow-hidden border border-gray-200'>
+                <div className='px-4 py-5 sm:px-6 bg-gray-50 border-b border-gray-200'>
+                  <h3 className='text-sm font-medium text-gray-900'>ID: {selectedDoc.id}</h3>
                 </div>
-
-                {/* Document Fields (excluding ID which is shown above) */}
-                <div className='px-4 py-4 sm:p-5 bg-white divide-y divide-gray-200'>
-                  {Object.entries(selectedDoc)
-                    .filter(([key]) => key !== 'id')
-                    .map(([key, value]) => (
-                      <div key={key} className='py-3 first:pt-0 last:pb-0'>
-                        <dt className='text-sm font-medium text-gray-500'>{key}</dt>
-                        <dd className='mt-1 text-sm text-gray-900 break-words'>
-                          {typeof value === 'object' ? <pre className='mt-2 text-xs bg-gray-50 p-2 rounded overflow-auto max-h-60'>{JSON.stringify(value, null, 2)}</pre> : String(value)}
-                        </dd>
-                      </div>
-                    ))}
-                </div>
-
-                {/* Raw JSON View */}
-                <div className='px-4 py-3 sm:px-6 bg-gray-50 border-t border-gray-200'>
-                  <div className='flex items-center justify-between'>
-                    <h3 className='text-sm font-medium text-gray-900'>Raw JSON</h3>
-                    <button
-                      type='button'
-                      onClick={() => {
-                        if (navigator.clipboard) {
-                          navigator.clipboard.writeText(JSON.stringify(selectedDoc, null, 2));
-                          showToast('Document JSON copied to clipboard', 'success');
-                        }
-                      }}
-                      className='inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
-                    >
-                      <svg className='-ml-0.5 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
-                        <path
-                          strokeLinecap='round'
-                          strokeLinejoin='round'
-                          strokeWidth={2}
-                          d='M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z'
-                        />
-                      </svg>
-                      Copy JSON
-                    </button>
-                  </div>
-                  <div className='mt-2 bg-gray-800 rounded-md'>
-                    <pre className='text-xs text-gray-200 overflow-auto whitespace-pre-wrap p-3 max-h-60'>{JSON.stringify(selectedDoc, null, 2)}</pre>
-                  </div>
+                <div className='px-4 py-5 sm:p-6'>
+                  <pre className='text-sm text-gray-700 overflow-auto whitespace-pre-wrap max-h-96'>{JSON.stringify(selectedDoc, null, 2)}</pre>
                 </div>
               </div>
             </div>

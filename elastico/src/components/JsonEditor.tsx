@@ -103,11 +103,15 @@ const JsonEditor: React.FC<JsonEditorProps> = ({ value, onChange, height = 300, 
   }, []);
 
   return (
-    <div className='json-editor-container'>
+    <div className='json-editor-container rounded-lg border border-gray-300 overflow-hidden shadow-sm'>
       <MonacoEditor language='json' theme='vs-light' value={value} options={editorOptions} onChange={handleEditorChange} editorDidMount={handleEditorDidMount} height={height} />
-      {error && <div className='mt-1 text-sm text-red-600'>{error}</div>}
-      <div className='mt-2 flex justify-end'>
-        <button type='button' onClick={formatJson} className='px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500'>
+      {error && <div className='mt-1 text-sm text-red-600 px-3 py-2'>{error}</div>}
+      <div className='mt-2 py-2 px-3 flex justify-end bg-gray-50 border-t border-gray-200'>
+        <button
+          type='button'
+          onClick={formatJson}
+          className='px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500 border border-gray-300'
+        >
           Format JSON (Alt+Shift+F)
         </button>
       </div>
