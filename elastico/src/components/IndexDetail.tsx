@@ -116,6 +116,9 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         totalHits: number;
         mappings: any | null;
         settings: any | null;
+        searchResults: any[];
+        searchTotalHits: number;
+        searchQuery: string;
       }
     >
   >({});
@@ -216,6 +219,20 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         setSettings(cachedData.settings);
         setTabDataLoaded((prev) => ({ ...prev, settings: true }));
       }
+
+      // Restore search data from cache if it exists
+      if (cachedData.searchResults && cachedData.searchResults.length > 0) {
+        setSearchResults(cachedData.searchResults);
+        setSearchTotalHits(cachedData.searchTotalHits);
+        setSearchQuery(cachedData.searchQuery);
+        setTabDataLoaded((prev) => ({ ...prev, search: true }));
+      } else {
+        // Reset search results if no cached search data
+        setSearchResults([]);
+        setSearchTotalHits(0);
+        setSearchQuery('{\n  "query": {\n    "match_all": {}\n  }\n}');
+        setTabDataLoaded((prev) => ({ ...prev, search: false }));
+      }
     } else {
       // Initialize cache entry for this index
       indexDataCache.current[index.name] = {
@@ -223,6 +240,9 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         totalHits: 0,
         mappings: null,
         settings: null,
+        searchResults: [],
+        searchTotalHits: 0,
+        searchQuery: '{\n  "query": {\n    "match_all": {}\n  }\n}',
       };
 
       // Reset tab data loaded state for a new index
@@ -233,12 +253,25 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         mappings: false,
         settings: false,
       });
+
+      // Reset search state for a new index
+      setSearchResults([]);
+      setSearchTotalHits(0);
+      setSearchQuery('{\n  "query": {\n    "match_all": {}\n  }\n}');
     }
 
     // Clear any selected documents when index changes
     setSelectedDocIds(new Set());
     setIsAllSelected(false);
     setSelectedDoc(null);
+
+    // Reset search-specific state
+    setSearchPage(1);
+    setSearchSortField(null);
+    setSearchSortOrder('asc');
+    setSearchError(null);
+    setSearchJsonError(null);
+    setIsSearching(false);
 
     // Reset pagination
     setPage(1);
@@ -941,6 +974,14 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       } finally {
         setIsSettingsLoading(false);
       }
+    } else if (activeTab === 'search') {
+      // If we have a valid search query, re-execute it to refresh the results
+      if (searchQuery.trim() !== '' && tabDataLoaded.search) {
+        await searchDocuments();
+      } else {
+        // Mark search tab as loaded even if there's no query
+        setTabDataLoaded((prev) => ({ ...prev, search: true }));
+      }
     }
   };
 
@@ -988,6 +1029,14 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
 
         setSearchResults(formattedResults);
         setSearchTotalHits(result.total);
+
+        // Update cache with paginated search results
+        indexDataCache.current[index.name] = {
+          ...indexDataCache.current[index.name],
+          searchResults: formattedResults,
+          searchTotalHits: result.total,
+          searchQuery: searchQuery, // Keep the original query
+        };
       } catch (error) {
         console.error('Search failed:', error);
         setSearchError(`Search failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -1016,7 +1065,8 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       queryObject.size = pageSize;
 
       // Update the search query with pagination
-      setSearchQuery(JSON.stringify(queryObject, null, 2));
+      const formattedQuery = JSON.stringify(queryObject, null, 2);
+      setSearchQuery(formattedQuery);
       setSearchJsonError(null);
       setIsSearching(true);
       setSearchError(null);
@@ -1026,7 +1076,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
 
       try {
         // Execute the search query
-        const result: QueryResult = await elasticsearchService.executeQuery(index.name, JSON.stringify(queryObject, null, 2));
+        const result: QueryResult = await elasticsearchService.executeQuery(index.name, formattedQuery);
 
         // Format the results
         const formattedResults = result.hits.map((hit) => ({
@@ -1036,6 +1086,14 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
 
         setSearchResults(formattedResults);
         setSearchTotalHits(result.total);
+
+        // Update cache with search results
+        indexDataCache.current[index.name] = {
+          ...indexDataCache.current[index.name],
+          searchResults: formattedResults,
+          searchTotalHits: result.total,
+          searchQuery: formattedQuery,
+        };
 
         // Mark search tab as loaded
         setTabDataLoaded((prev) => ({ ...prev, search: true }));
@@ -1086,6 +1144,12 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     });
 
     setSearchResults(sortedResults);
+
+    // Update cache with sorted results
+    indexDataCache.current[index.name] = {
+      ...indexDataCache.current[index.name],
+      searchResults: sortedResults,
+    };
   };
 
   return (
@@ -1528,7 +1592,18 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
               </div>
               <div className='flex justify-end space-x-3'>
                 <button
-                  onClick={() => setSearchResults([])}
+                  onClick={() => {
+                    setSearchResults([]);
+                    setSearchTotalHits(0);
+                    // Clear search results in the cache
+                    if (indexDataCache.current[index.name]) {
+                      indexDataCache.current[index.name] = {
+                        ...indexDataCache.current[index.name],
+                        searchResults: [],
+                        searchTotalHits: 0,
+                      };
+                    }
+                  }}
                   className='px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500'
                   disabled={isSearching}
                 >
