@@ -12,7 +12,9 @@
     "build:macos": "tauri build --target universal-apple-darwin",
     "build:macos-arm64": "tauri build --target aarch64-apple-darwin",
     "build:macos-x64": "tauri build --target x86_64-apple-darwin",
-    "build:all": "npm run build:macos"
+    "build:all": "npm run build:macos",
+    "build:dev": "tauri build --debug",
+    "dev:unsigned": "tauri dev --no-watch"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

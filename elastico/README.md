@@ -11,6 +11,20 @@ A modern, user-friendly Elasticsearch client built with Tauri, React, and TypeSc
 - Create, update, and delete documents
 - View cluster health and stats
 
+## Installation on macOS
+
+**Important Note for macOS Users**: Since Elastico is not signed with an Apple Developer certificate, macOS security features will prevent it from running by default.
+
+To install and run Elastico on macOS:
+
+1. Download or build the app
+2. Use one of these methods to open it:
+   - Right-click on the app and select "Open"
+   - Run the included helper script: `./macos-open-app.sh`
+   - Follow the manual instructions in [MACOS-INSTALL.md](./MACOS-INSTALL.md)
+
+For more detailed instructions on handling macOS security restrictions, see [MACOS-INSTALL.md](./MACOS-INSTALL.md).
+
 ## Development
 
 ### Prerequisites
