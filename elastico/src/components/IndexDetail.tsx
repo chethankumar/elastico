@@ -93,6 +93,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
   const [searchTotalHits, setSearchTotalHits] = useState(0);
   const [searchPage, setSearchPage] = useState(1);
   const [searchJsonError, setSearchJsonError] = useState<string | null>(null);
+  const [isSearchEditorMinimized, setIsSearchEditorMinimized] = useState(false);
 
   // Add these state variables at the top with the other state variables
   const [searchSortField, setSearchSortField] = useState<string | null>(null);
@@ -281,11 +282,66 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
 
   // Create a tab switching handler that ensures a smooth experience
   const handleTabChange = (tab: TabType) => {
+    // Store previous tab for reference
+    const previousTab = activeTab;
     setActiveTab(tab);
 
     // Reset document selection when leaving the documents tab
     if (activeTab === 'documents' && tab !== 'documents') {
       setSelectedDoc(null);
+    }
+
+    // Force refresh of documents tab when coming from search tab
+    // This ensures documents are refreshed after potential deletions in search tab
+    if (tab === 'documents' && previousTab === 'search') {
+      console.log('Switching from search to documents tab, refreshing documents data');
+
+      // Immediately refresh documents data
+      (async () => {
+        try {
+          setIsLoading(true);
+          console.log('Forcing documents refresh after search tab');
+
+          // Build query
+          const sortConfig = sortField ? [{ [sortField]: { order: sortOrder } }] : [];
+          const from = (page - 1) * pageSize;
+          const queryString = JSON.stringify({
+            from,
+            size: pageSize,
+            sort: sortConfig,
+            query: {
+              match_all: {},
+            },
+          });
+
+          // Execute fresh query
+          const result = await elasticsearchService.executeQuery(index.name, queryString);
+          const formattedDocs = result.hits.map((hit) => ({
+            id: hit._id,
+            ...hit._source,
+          }));
+
+          // Update state with fresh data
+          setDocuments(formattedDocs);
+          setTotalHits(result.total);
+          console.log(`Documents refreshed, now has ${formattedDocs.length} documents`);
+
+          // Update cache
+          indexDataCache.current[index.name] = {
+            ...indexDataCache.current[index.name],
+            documents: formattedDocs,
+            totalHits: result.total,
+          };
+
+          // Mark as loaded
+          setTabDataLoaded((prev) => ({ ...prev, documents: true }));
+        } catch (error) {
+          console.error('Failed to refresh documents when switching tabs:', error);
+          setError(`Failed to refresh documents: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          setIsLoading(false);
+        }
+      })();
     }
   };
 
@@ -520,7 +576,13 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       } else if (confirmAction === 'deleteDocuments') {
         await deleteAllDocuments();
       } else if (confirmAction === 'deleteSelectedDocuments') {
-        await deleteSelectedDocuments();
+        // If we have a specific document ID to delete
+        if (idToDelete) {
+          await handleDeleteDocument();
+        } else {
+          // Otherwise handle bulk deletion of selected documents
+          await deleteSelectedDocuments();
+        }
       }
     } finally {
       setShowConfirmDialog(false);
@@ -564,9 +626,16 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       // Show success toast
       showToast(`Successfully deleted ${deleted.toLocaleString()} documents from "${index.name}".`, 'success');
 
-      // Clear documents if we're in the documents tab
+      // Clear current document lists from state
       setDocuments([]);
       setTotalHits(0);
+
+      // Also clear search results if they exist
+      setSearchResults([]);
+      setSearchTotalHits(0);
+
+      // Refresh both documents and search tabs
+      await refreshAllTabsAfterDelete();
 
       // Refresh the parent component's indices list to update doc count
       if (onRefresh) {
@@ -582,6 +651,109 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     }
   };
 
+  // New function to refresh both documents and search tabs after deletion
+  const refreshAllTabsAfterDelete = async () => {
+    console.log('Refreshing all tabs after document deletion');
+
+    // First refresh the documents tab data regardless of which tab is active
+    try {
+      console.log('Refreshing documents data');
+      setIsLoading(true);
+      // Build sort query part
+      const sortConfig = sortField ? [{ [sortField]: { order: sortOrder } }] : [];
+      // Build pagination query
+      const from = (page - 1) * pageSize;
+      // Construct the full query
+      const queryString = JSON.stringify({
+        from,
+        size: pageSize,
+        sort: sortConfig,
+        query: {
+          match_all: {},
+        },
+      });
+
+      const result: QueryResult = await elasticsearchService.executeQuery(index.name, queryString);
+      const formattedDocs = result.hits.map((hit) => ({
+        id: hit._id,
+        ...hit._source,
+      }));
+
+      setDocuments(formattedDocs);
+      setTotalHits(result.total);
+
+      // Update cache
+      indexDataCache.current[index.name] = {
+        ...indexDataCache.current[index.name],
+        documents: formattedDocs,
+        totalHits: result.total,
+      };
+
+      console.log(`Documents tab refreshed, now has ${formattedDocs.length} documents`);
+      setTabDataLoaded((prev) => ({ ...prev, documents: true }));
+    } catch (error) {
+      console.error('Failed to refresh documents:', error);
+      setError(`Failed to refresh documents: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsLoading(false);
+    }
+
+    // Then refresh the search tab if there's an active search query
+    if (searchQuery && searchQuery.trim() !== '') {
+      console.log('Refreshing search tab with query:', searchQuery);
+      setIsSearching(true);
+      setSearchError(null);
+
+      try {
+        // Parse the query to ensure it's valid
+        const queryObject = JSON.parse(searchQuery);
+
+        // Reset to first page after deletion to avoid pagination issues
+        queryObject.from = 0;
+        queryObject.size = pageSize;
+
+        // Format and update the query
+        const formattedQuery = JSON.stringify(queryObject, null, 2);
+        console.log('Executing search with modified query:', formattedQuery);
+
+        // Reset to first page in the UI
+        setSearchPage(1);
+
+        // Execute the search query
+        const result = await elasticsearchService.executeQuery(index.name, formattedQuery);
+        console.log(`Search completed, got ${result.total} results`);
+
+        // Format the results and update state
+        const formattedResults = result.hits.map((hit) => ({
+          id: hit._id,
+          ...hit._source,
+        }));
+
+        setSearchResults(formattedResults);
+        setSearchTotalHits(result.total);
+        console.log(`Updated search results state with ${formattedResults.length} items`);
+
+        // Update cache
+        indexDataCache.current[index.name] = {
+          ...indexDataCache.current[index.name],
+          searchResults: formattedResults,
+          searchTotalHits: result.total,
+          searchQuery: formattedQuery,
+        };
+
+        setTabDataLoaded((prev) => ({ ...prev, search: true }));
+      } catch (error) {
+        console.error('Search refresh failed:', error);
+        setSearchError(`Search refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }
+
+    console.log('All tabs refreshed after document deletion');
+  };
+
   // Delete selected documents
   const deleteSelectedDocuments = async () => {
     try {
@@ -591,14 +763,17 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       // Show success toast
       showToast(`Successfully deleted ${deleted.toLocaleString()} selected document${deleted !== 1 ? 's' : ''} from "${index.name}".`, 'success');
 
+      // If the selected document was deleted, clear it
+      if (selectedDoc && selectedDocIds.has(selectedDoc.id)) {
+        setSelectedDoc(null);
+      }
+
       // Clear selected documents
       setSelectedDocIds(new Set());
       setIsAllSelected(false);
 
-      // Refresh document list
-      if (activeTab === 'documents') {
-        await refreshDocuments();
-      }
+      // Refresh both documents and search tabs to ensure consistent data
+      await refreshAllTabsAfterDelete();
 
       // Refresh the parent component's indices list to update doc count
       if (onRefresh) {
@@ -672,33 +847,48 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     if (isAllSelected) {
       setSelectedDocIds(new Set());
     } else {
-      const allIds = new Set(documents.map((doc) => doc.id));
+      // Get the IDs from either the documents list or search results based on active tab
+      const docs = activeTab === 'search' ? searchResults : documents;
+      const allIds = new Set(docs.map((doc) => doc.id));
       setSelectedDocIds(allIds);
     }
     setIsAllSelected(!isAllSelected);
   };
 
-  // Handle bulk delete of selected documents
+  // Fix the handleBulkDelete function to properly handle clearing selected documents
   const handleBulkDelete = async () => {
     if (selectedDocIds.size === 0) return;
 
     setIsDeleteConfirmOpen(false);
 
     try {
+      setIsDeleting(true);
       const docsToDelete = Array.from(selectedDocIds);
       const deletedCount = await elasticsearchService.deleteDocuments(index.name, docsToDelete);
 
       showToast(`Deleted ${deletedCount} document${deletedCount !== 1 ? 's' : ''}`, 'success');
 
-      // Refresh the documents list
-      await refreshCurrentTab();
-
-      // Clear selection
+      // Clear selection before refreshing to avoid stale references
       setSelectedDocIds(new Set());
       setIsAllSelected(false);
+
+      // If the selected document was deleted, clear it
+      if (selectedDoc && selectedDocIds.has(selectedDoc.id)) {
+        setSelectedDoc(null);
+      }
+
+      // Refresh both documents and search tabs to ensure consistent data
+      await refreshAllTabsAfterDelete();
+
+      // Update the parent indices list to reflect document count changes
+      if (onRefresh) {
+        await onRefresh(index.name);
+      }
     } catch (error) {
       console.error('Error deleting documents:', error);
       showToast(`Failed to delete documents: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -707,31 +897,80 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     if (!idToDelete) return;
 
     setIsDeleteConfirmOpen(false);
+    setShowConfirmDialog(false);
 
     try {
+      // Show deleting state
+      setIsDeleting(true);
+      console.log(`Deleting document with ID: ${idToDelete} from index: ${index.name}`);
+
       // Use deleteDocuments with a single-element array
       await elasticsearchService.deleteDocuments(index.name, [idToDelete]);
 
+      console.log(`Document deleted successfully: ${idToDelete}`);
       showToast('Document deleted successfully', 'success');
 
-      // Refresh the documents list
-      await refreshCurrentTab();
+      // If the selected document was deleted, clear it
+      if (selectedDoc && selectedDoc.id === idToDelete) {
+        console.log('Clearing selected document as it was deleted');
+        setSelectedDoc(null);
+      }
 
-      // Clear selection
+      // Remove from selected docs if it was selected
+      if (selectedDocIds.has(idToDelete)) {
+        console.log('Removing deleted document from selection');
+        const newSelectedDocs = new Set(selectedDocIds);
+        newSelectedDocs.delete(idToDelete);
+        setSelectedDocIds(newSelectedDocs);
+      }
+
+      // Explicitly log the active tab before refreshing
+      console.log(`Active tab before refresh: ${activeTab}`);
+
+      // Refresh both documents and search tabs to ensure consistent data
+      await refreshAllTabsAfterDelete();
+      console.log('Refreshed all tabs after document deletion');
+
+      // Update the parent indices list to reflect the document count change
+      if (onRefresh) {
+        await onRefresh(index.name);
+        console.log('Updated parent indices list');
+      }
+
+      // Clear the id to delete
       setIdToDelete(null);
     } catch (error) {
       console.error('Error deleting document:', error);
       showToast(`Failed to delete document: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   // Determine document fields for table columns based on first document
   let fields: string[] = [];
-  if (documents.length > 0) {
-    // Get all field names from the first document
-    fields = Object.keys(documents[0] || {})
-      .filter((key) => key !== 'id' && key !== '_score')
-      .slice(0, 10); // Limit to 10 fields to avoid overloading the UI
+  if (activeTab === 'documents') {
+    if (documents.length > 0) {
+      // Get all field names from the first document
+      fields = Object.keys(documents[0] || {})
+        .filter((key) => key !== 'id' && key !== '_score')
+        .slice(0, 10); // Limit to 10 fields to avoid overloading the UI
+    }
+  } else if (activeTab === 'search') {
+    if (searchResults.length > 0) {
+      // Get fields from search results
+      fields = Object.keys(searchResults[0] || {})
+        .filter((key) => key !== 'id' && key !== '_score')
+        .slice(0, 10);
+    } else {
+      // If cached search results exist, use fields from there to maintain structure
+      const cachedResults = indexDataCache.current[index.name]?.searchResults || [];
+      if (cachedResults.length > 0) {
+        fields = Object.keys(cachedResults[0] || {})
+          .filter((key) => key !== 'id' && key !== '_score')
+          .slice(0, 10);
+      }
+    }
   }
 
   // Calculate total pages
@@ -914,7 +1153,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     );
   };
 
-  // Update the refreshCurrentTab function to also update the cache
+  // Fix the refreshCurrentTab function to better handle search results
   const refreshCurrentTab = async () => {
     // Show loading indicator based on current tab
     if (activeTab === 'overview') {
@@ -960,17 +1199,63 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         };
 
         setTabDataLoaded((prev) => ({ ...prev, settings: true }));
-      } catch (error) {
-        console.error('Failed to load index settings:', error);
-        setSettingsError(`Failed to load index settings: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         setIsSettingsLoading(false);
       }
     } else if (activeTab === 'search') {
       // If we have a valid search query, re-execute it to refresh the results
-      if (searchQuery.trim() !== '' && tabDataLoaded.search) {
-        await searchDocuments();
+      if (searchQuery && searchQuery.trim() !== '') {
+        console.log('Refreshing search tab with query:', searchQuery);
+        // Make sure we're completely re-running the search to get fresh results
+        setIsSearching(true);
+        setSearchError(null);
+
+        try {
+          // Parse the query to ensure it's valid and capture the pagination
+          const queryObject = JSON.parse(searchQuery);
+
+          // Always reset to first page after deletion to avoid pagination issues
+          // This ensures we don't end up on a page that no longer exists
+          queryObject.from = 0;
+          queryObject.size = pageSize;
+
+          // Format and update the query
+          const formattedQuery = JSON.stringify(queryObject, null, 2);
+          console.log('Executing search with modified query:', formattedQuery);
+
+          // Reset to first page in the UI as well
+          setSearchPage(1);
+
+          // Execute the search query
+          const result = await elasticsearchService.executeQuery(index.name, formattedQuery);
+          console.log(`Search completed, got ${result.total} results`);
+
+          // Format the results and update state
+          const formattedResults = result.hits.map((hit) => ({
+            id: hit._id,
+            ...hit._source,
+          }));
+
+          setSearchResults(formattedResults);
+          setSearchTotalHits(result.total);
+          console.log(`Updated search results state with ${formattedResults.length} items`);
+
+          // Update cache
+          indexDataCache.current[index.name] = {
+            ...indexDataCache.current[index.name],
+            searchResults: formattedResults,
+            searchTotalHits: result.total,
+            searchQuery: formattedQuery,
+          };
+        } catch (error) {
+          console.error('Search refresh failed:', error);
+          setSearchError(`Search refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+          setSearchResults([]);
+        } finally {
+          setIsSearching(false);
+        }
       } else {
+        console.log('No search query to refresh');
         // Mark search tab as loaded even if there's no query
         setTabDataLoaded((prev) => ({ ...prev, search: true }));
       }
@@ -1574,14 +1859,41 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
           {activeTab === 'search' && (
             <div className='p-6 h-full flex flex-col'>
               <h3 className='text-lg font-medium text-gray-900 mb-4'>Search</h3>
-              <div className='mb-4'>
-                <label htmlFor='searchQuery' className='block text-sm font-medium text-gray-700 mb-1'>
-                  Search Query
-                </label>
-                <div className='rounded-lg overflow-hidden'>
-                  <JsonEditor value={searchQuery} onChange={setSearchQuery} height={300} error={searchJsonError} />
+
+              <div className={`transition-all duration-300 ease-in-out ${isSearchEditorMinimized ? 'mb-1' : 'mb-4'}`}>
+                <div className='flex justify-between items-center mb-1'>
+                  <label htmlFor='searchQuery' className='block text-sm font-medium text-gray-700'>
+                    Search Query
+                  </label>
+                  <button
+                    onClick={() => setIsSearchEditorMinimized(!isSearchEditorMinimized)}
+                    className='text-gray-500 hover:text-gray-700 transition-colors'
+                    title={isSearchEditorMinimized ? 'Expand editor' : 'Minimize editor'}
+                  >
+                    {isSearchEditorMinimized ? (
+                      <svg xmlns='http://www.w3.org/2000/svg' className='h-5 w-5' viewBox='0 0 20 20' fill='currentColor'>
+                        <path fillRule='evenodd' d='M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z' clipRule='evenodd' />
+                        <path fillRule='evenodd' d='M10 5a1 1 0 011 1v8a1 1 0 11-2 0V6a1 1 0 011-1z' clipRule='evenodd' />
+                      </svg>
+                    ) : (
+                      <svg xmlns='http://www.w3.org/2000/svg' className='h-5 w-5' viewBox='0 0 20 20' fill='currentColor'>
+                        <path fillRule='evenodd' d='M5 10a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z' clipRule='evenodd' />
+                      </svg>
+                    )}
+                  </button>
                 </div>
+
+                <div className={`rounded-lg overflow-hidden transition-all duration-300 ease-in-out ${isSearchEditorMinimized ? 'h-0 opacity-0' : 'opacity-100'}`}>
+                  <JsonEditor value={searchQuery} onChange={setSearchQuery} height={isSearchEditorMinimized ? 0 : 300} error={searchJsonError} />
+                </div>
+
+                {isSearchEditorMinimized && (
+                  <div className='p-2 bg-gray-100 text-gray-600 text-sm rounded-lg border border-gray-300'>
+                    <div className='truncate'>{searchQuery ? (searchQuery.length > 100 ? `${searchQuery.substring(0, 100)}...` : searchQuery) : 'No query defined'}</div>
+                  </div>
+                )}
               </div>
+
               <div className='flex justify-end space-x-3'>
                 <button
                   onClick={() => {
@@ -1619,6 +1931,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                   )}
                 </button>
               </div>
+
               {isSearching ? (
                 <div className='flex-1 flex justify-center items-center'>
                   <svg className='animate-spin h-8 w-8 text-purple-500' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
@@ -1641,12 +1954,18 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                     <div className='flex items-center'>
                       <span className='text-sm font-medium text-gray-700'>
                         {searchTotalHits} result{searchTotalHits !== 1 ? 's' : ''}
+                        {selectedDocIds.size > 0 && ` (${selectedDocIds.size} selected)`}
                       </span>
                     </div>
                     <div>
-                      {searchResults.length > 0 && (
+                      {selectedDocIds.size > 0 && (
                         <button
-                          onClick={() => setIsDeleteConfirmOpen(true)}
+                          onClick={() => {
+                            // Set up the confirmation action for search documents deletion
+                            setConfirmAction('deleteSelectedDocuments');
+                            setConfirmMessage(`Are you sure you want to delete ${selectedDocIds.size} selected document${selectedDocIds.size !== 1 ? 's' : ''}? This action cannot be undone.`);
+                            setShowConfirmDialog(true);
+                          }}
                           className='inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50'
                         >
                           {isDeleting && confirmAction === 'deleteSelectedDocuments' ? (
@@ -1968,11 +2287,48 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
           <div className='w-1/3 border-l border-gray-200 bg-gray-50 overflow-auto'>
             <div className='sticky top-0 bg-gray-50 border-b border-gray-200 p-4 flex justify-between items-center z-10 shadow-sm'>
               <h3 className='text-lg font-medium text-gray-900'>Document Detail</h3>
-              <button onClick={() => setSelectedDoc(null)} className='text-gray-400 hover:text-gray-500'>
-                <svg className='h-6 w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
-                  <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M6 18L18 6M6 6l12 12' />
-                </svg>
-              </button>
+              <div className='flex items-center space-x-2'>
+                <button
+                  onClick={() => {
+                    // Set up the delete confirmation for a single document from the detail panel
+                    setIdToDelete(selectedDoc.id);
+                    setConfirmAction('deleteSelectedDocuments');
+                    setConfirmMessage(
+                      `Are you sure you want to delete this document (ID: ${selectedDoc.id.toString().substring(0, 10)}${
+                        selectedDoc.id.toString().length > 10 ? '...' : ''
+                      })? This action cannot be undone.`
+                    );
+                    setShowConfirmDialog(true);
+                  }}
+                  className='text-red-500 hover:text-red-600 flex items-center'
+                  title='Delete Document'
+                  disabled={isDeleting}
+                >
+                  {isDeleting && idToDelete === selectedDoc.id ? (
+                    <>
+                      <svg className='animate-spin -ml-1 mr-1 h-4 w-4 text-red-500' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
+                        <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
+                        <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
+                      </svg>
+                    </>
+                  ) : (
+                    <svg className='h-5 w-5' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
+                      <path
+                        strokeLinecap='round'
+                        strokeLinejoin='round'
+                        strokeWidth='2'
+                        d='M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16'
+                      />
+                    </svg>
+                  )}
+                  <span className='ml-1 text-xs'>Delete</span>
+                </button>
+                <button onClick={() => setSelectedDoc(null)} className='text-gray-400 hover:text-gray-500'>
+                  <svg className='h-6 w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
+                    <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M6 18L18 6M6 6l12 12' />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div className='p-4'>
               <div className='rounded-lg bg-white shadow-sm overflow-hidden border border-gray-200'>
