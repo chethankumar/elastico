@@ -1,6 +1,6 @@
-# Elastiky
+# Elastico
 
-Elastiky is a modern, user-friendly Elasticsearch GUI client built with Tauri, React, and TypeScript. It provides an intuitive interface for interacting with Elasticsearch clusters, similar to how Postico works for PostgreSQL.
+Elastico is a modern, user-friendly Elasticsearch GUI client built with Tauri, React, and TypeScript. It provides an intuitive interface for interacting with Elasticsearch clusters, similar to how Postico works for PostgreSQL.
 
 ## Features
 

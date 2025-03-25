@@ -260,7 +260,7 @@ const AppHeader: React.FC = () => {
       <div className='max-w-full mx-auto px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-purple-700 to-purple-500'>
         <div className='flex justify-between items-center h-16'>
           <div className='flex items-center'>
-            <span className='text-xl font-bold text-white'>Elastiky</span>
+            <span className='text-xl font-bold text-white'>Elastico</span>
 
             {/* Connection dropdown */}
             <div className='ml-6 relative'>

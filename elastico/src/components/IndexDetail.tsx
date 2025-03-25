@@ -504,14 +504,6 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     setShowConfirmDialog(true);
   };
 
-  // Show confirmation dialog for delete selected documents
-  const showDeleteSelectedDocumentsConfirmation = () => {
-    const count = selectedDocIds.size;
-    setConfirmMessage(`Are you sure you want to delete ${count} selected document${count !== 1 ? 's' : ''} from the index "${index.name}"? This action cannot be undone.`);
-    setConfirmAction('deleteSelectedDocuments');
-    setShowConfirmDialog(true);
-  };
-
   // Handle confirm dialog response
   const handleConfirmDialogResponse = async (confirmed: boolean) => {
     if (!confirmed) {
