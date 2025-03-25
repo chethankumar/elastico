@@ -7,6 +7,7 @@ import { ElasticsearchIndex, QueryResult } from '../types/elasticsearch';
 import { useElasticsearch } from '../contexts/ElasticsearchContext';
 import { useToast } from '../contexts/ToastContext';
 import JsonEditor from './JsonEditor';
+import { RefreshCw, Search, Settings, FileText, Database, Home, Plus, Trash2, X, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Loader2, Save, AlertTriangle, Check } from 'lucide-react';
 
 // Tab interface definitions
 type TabType = 'overview' | 'documents' | 'search' | 'mappings' | 'settings';
@@ -1428,7 +1429,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                       <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
                       <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
                     </svg>
-                    Processing...
+                    Deleting...
                   </>
                 ) : (
                   'Confirm'
@@ -1511,13 +1512,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
             className='ml-2 flex items-center justify-center p-1.5 rounded-md text-gray-500 hover:text-purple-600 hover:bg-purple-50 focus:outline-none'
             title='Refresh'
           >
-            <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' className='w-5 h-5'>
-              <path
-                fillRule='evenodd'
-                d='M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z'
-                clipRule='evenodd'
-              />
-            </svg>
+            <RefreshCw className='w-5 h-5' />
           </button>
           <p className='mt-1 text-sm text-gray-500 ml-3'>
             {index.docsCount.toLocaleString()} documents • {index.storageSize} size
@@ -1526,14 +1521,15 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
 
         <div className='mt-3 sm:mt-0 flex flex-wrap gap-2'>
           <button
-            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
+            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 flex items-center'
             onClick={showCreateDocumentDialog}
           >
+            <Plus className='w-4 h-4 mr-1' />
             Create Document
           </button>
 
           <button
-            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50'
+            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 flex items-center'
             onClick={showDeleteIndexConfirmation}
             disabled={isDeleting}
           >
@@ -1546,12 +1542,15 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                 Deleting...
               </>
             ) : (
-              'Delete Index'
+              <>
+                <Trash2 className='w-4 h-4 mr-1' />
+                Delete Index
+              </>
             )}
           </button>
 
           <button
-            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50'
+            className='px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 flex items-center'
             onClick={showDeleteDocumentsConfirmation}
             disabled={isDeleting}
           >
@@ -1564,7 +1563,10 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                 Deleting...
               </>
             ) : (
-              'Clear Documents'
+              <>
+                <Trash2 className='w-4 h-4 mr-1' />
+                Clear Documents
+              </>
             )}
           </button>
         </div>
@@ -1576,41 +1578,46 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
           <button
             className={`${
               activeTab === 'overview' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
+            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none flex items-center`}
             onClick={() => handleTabChange('overview')}
           >
+            <Home className='w-4 h-4 mr-2' />
             Overview
           </button>
           <button
             className={`${
               activeTab === 'documents' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
+            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none flex items-center`}
             onClick={() => handleTabChange('documents')}
           >
+            <FileText className='w-4 h-4 mr-2' />
             Documents
           </button>
           <button
             className={`${
               activeTab === 'search' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
+            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none flex items-center`}
             onClick={() => handleTabChange('search')}
           >
+            <Search className='w-4 h-4 mr-2' />
             Search
           </button>
           <button
             className={`${
               activeTab === 'mappings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
+            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none flex items-center`}
             onClick={() => handleTabChange('mappings')}
           >
+            <Database className='w-4 h-4 mr-2' />
             Mappings
           </button>
           <button
             className={`${
               activeTab === 'settings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none`}
+            } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm focus:outline-none flex items-center`}
             onClick={() => handleTabChange('settings')}
           >
+            <Settings className='w-4 h-4 mr-2' />
             Settings
           </button>
         </nav>
@@ -1688,7 +1695,10 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                           Deleting...
                         </>
                       ) : (
-                        'Delete Selected'
+                        <>
+                          <Trash2 className='w-3 h-3 mr-1' />
+                          Delete Selected
+                        </>
                       )}
                     </button>
                   )}
@@ -1729,11 +1739,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                         <th scope='col' className='px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100' onClick={() => handleSort('id')}>
                           <span className='flex items-center'>
                             ID
-                            {sortField === 'id' && (
-                              <svg className={`ml-1 h-4 w-4 ${sortOrder === 'asc' ? 'transform rotate-180' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
-                                <path fillRule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clipRule='evenodd' />
-                              </svg>
-                            )}
+                            {sortField === 'id' && (sortOrder === 'asc' ? <ChevronUp className='ml-1 h-4 w-4' /> : <ChevronDown className='ml-1 h-4 w-4' />)}
                           </span>
                         </th>
                         {fields.map((field) => (
@@ -1900,7 +1906,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                 </button>
                 <button
                   onClick={searchDocuments}
-                  className='px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50'
+                  className='px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 flex items-center'
                   disabled={isSearching}
                 >
                   {isSearching ? (
@@ -1912,7 +1918,10 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                       Searching...
                     </>
                   ) : (
-                    'Search'
+                    <>
+                      <Search className='w-4 h-4 mr-2' />
+                      Search
+                    </>
                   )}
                 </button>
               </div>
@@ -1955,18 +1964,14 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                         >
                           {isDeleting && confirmAction === 'deleteSelectedDocuments' ? (
                             <>
-                              <svg className='animate-spin -ml-1 mr-1 h-3 w-3 text-white inline-block' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
-                                <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
-                                <path
-                                  className='opacity-75'
-                                  fill='currentColor'
-                                  d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'
-                                ></path>
-                              </svg>
+                              <Loader2 className='animate-spin mr-1 h-3 w-3 text-white' />
                               Deleting...
                             </>
                           ) : (
-                            'Delete Selected'
+                            <>
+                              <Trash2 className='w-3 h-3 mr-1' />
+                              Delete Selected
+                            </>
                           )}
                         </button>
                       )}
@@ -1995,11 +2000,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                           >
                             <span className='flex items-center'>
                               ID
-                              {searchSortField === 'id' && (
-                                <svg className={`ml-1 h-4 w-4 ${searchSortOrder === 'asc' ? 'transform rotate-180' : ''}`} fill='currentColor' viewBox='0 0 20 20'>
-                                  <path fillRule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clipRule='evenodd' />
-                                </svg>
-                              )}
+                              {searchSortField === 'id' && (searchSortOrder === 'asc' ? <ChevronUp className='ml-1 h-4 w-4' /> : <ChevronDown className='ml-1 h-4 w-4' />)}
                             </span>
                           </th>
                           {fields.map((field) => {
@@ -2176,13 +2177,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                         onClick={() => document.getElementById('raw-mappings')?.classList.toggle('hidden')}
                         className='inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
                       >
-                        <svg className='-ml-1 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'>
-                          <path
-                            fillRule='evenodd'
-                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4z'
-                            clipRule='evenodd'
-                          />
-                        </svg>
+                        <FileText className='mr-2 h-4 w-4' />
                         Toggle Raw JSON
                       </button>
 
@@ -2245,13 +2240,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                         onClick={() => document.getElementById('raw-settings')?.classList.toggle('hidden')}
                         className='inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
                       >
-                        <svg className='-ml-1 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'>
-                          <path
-                            fillRule='evenodd'
-                            d='M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4z'
-                            clipRule='evenodd'
-                          />
-                        </svg>
+                        <FileText className='mr-2 h-4 w-4' />
                         Toggle Raw JSON
                       </button>
 
@@ -2274,9 +2263,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
               <h3 className='text-lg font-medium text-gray-900'>Document Detail</h3>
               <div className='flex items-center space-x-2'>
                 <button onClick={() => setSelectedDoc(null)} className='text-gray-400 hover:text-gray-500'>
-                  <svg className='h-6 w-6' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
-                    <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M6 18L18 6M6 6l12 12' />
-                  </svg>
+                  <X className='h-6 w-6' />
                 </button>
               </div>
             </div>
@@ -2315,14 +2302,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
                       }}
                       className='inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500'
                     >
-                      <svg className='-ml-0.5 mr-2 h-4 w-4' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
-                        <path
-                          strokeLinecap='round'
-                          strokeLinejoin='round'
-                          strokeWidth={2}
-                          d='M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z'
-                        />
-                      </svg>
+                      <Save className='mr-2 h-4 w-4' />
                       Copy JSON
                     </button>
                   </div>
