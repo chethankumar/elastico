@@ -7,7 +7,7 @@ import { ElasticsearchIndex, QueryResult } from '../types/elasticsearch';
 import { useElasticsearch } from '../contexts/ElasticsearchContext';
 import { useToast } from '../contexts/ToastContext';
 import JsonEditor from './JsonEditor';
-import { RefreshCw, Search, Settings, FileText, Database, Home, Plus, Trash2, X, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, Loader2, Save, AlertTriangle, Check } from 'lucide-react';
+import { Loader2, RefreshCw, Search, Settings, FileText, Database, Home, Plus, Trash2, X, ChevronDown, ChevronUp, Save } from 'lucide-react';
 
 // Tab interface definitions
 type TabType = 'overview' | 'documents' | 'search' | 'mappings' | 'settings';
@@ -807,59 +807,7 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     setIsAllSelected(!isAllSelected);
   };
 
-  // Handle bulk deletion of documents
-  const handleBulkDelete = async () => {
-    if (selectedDocIds.size === 0) return;
-
-    // Close the confirmation dialog since we're starting the delete process
-    setShowConfirmDialog(false);
-
-    try {
-      // Show loading state
-      setIsDeleting(true);
-      console.log(`Bulk deleting ${selectedDocIds.size} documents from index: ${index.name}`);
-
-      // Perform the deletion
-      const docsToDelete = Array.from(selectedDocIds);
-      const deletedCount = await elasticsearchService.deleteDocuments(index.name, docsToDelete);
-
-      // Show success message
-      showToast(`Deleted ${deletedCount} document${deletedCount !== 1 ? 's' : ''}`, 'success');
-
-      // Clear selection states
-      setSelectedDocIds(new Set());
-      setIsAllSelected(false);
-
-      // If the selected document was deleted, clear it
-      if (selectedDoc && selectedDocIds.has(selectedDoc.id)) {
-        console.log('Clearing selected document as it was deleted');
-        setSelectedDoc(null);
-      }
-
-      // Force immediate refresh of documents
-      console.log('Forcing immediate document refresh after bulk deletion');
-
-      // Clear loaded flag to ensure a fresh reload
-      setTabDataLoaded((prev) => ({ ...prev, documents: false }));
-
-      // Force an immediate data refresh
-      setDocuments([]); // Clear documents first to ensure UI updates
-
-      // Explicitly refresh documents
-      const refreshedDocs = await refreshDocuments();
-      console.log(`Document list refreshed after bulk deletion, now has ${refreshedDocs.length} documents`);
-
-      // Update the parent indices list to reflect document count changes
-      if (onRefresh) {
-        await onRefresh(index.name);
-      }
-    } catch (error) {
-      console.error('Error deleting documents:', error);
-      showToast(`Failed to delete documents: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
+  // handleBulkDelete function removed as it is unused
 
   // Handle deletion of a single document
   const handleDeleteDocument = async () => {
