@@ -8,7 +8,11 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "build:macos": "tauri build --target universal-apple-darwin",
+    "build:macos-arm64": "tauri build --target aarch64-apple-darwin",
+    "build:macos-x64": "tauri build --target x86_64-apple-darwin",
+    "build:all": "npm run build:macos"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

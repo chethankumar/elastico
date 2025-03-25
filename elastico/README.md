@@ -1,63 +1,77 @@
-# Elastico
+# Elastico - Elasticsearch GUI Client
 
-Elastico is a modern, user-friendly Elasticsearch GUI client built with Tauri, React, and TypeScript. It provides an intuitive interface for interacting with Elasticsearch clusters, similar to how Postico works for PostgreSQL.
+A modern, user-friendly Elasticsearch client built with Tauri, React, and TypeScript.
 
 ## Features
 
-- **Connection Management**: Save and manage multiple Elasticsearch connections
-- **Index Browser**: View and manage Elasticsearch indices
-- **Query Interface**: Execute queries with a simple interface
-- **Authentication**: Support for various authentication methods (none, basic auth, API key)
-- **Cross-platform**: Works on macOS, Windows, and Linux
+- Connect to Elasticsearch clusters
+- Browse and manage indices
+- Query Elasticsearch using a JSON editor
+- View document details and mappings
+- Create, update, and delete documents
+- View cluster health and stats
 
 ## Development
 
 ### Prerequisites
 
-- Node.js (v16 or higher)
-- Rust (for Tauri)
-- An Elasticsearch instance for testing
+- [Node.js](https://nodejs.org/) (v16 or later)
+- [Rust](https://www.rust-lang.org/tools/install)
+- [Tauri CLI](https://tauri.app/v1/guides/getting-started/prerequisites/)
 
-### Getting Started
+### Installation
 
-1. Clone the repository
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/yourusername/elastico.git
+   cd elastico
+   ```
+
 2. Install dependencies:
 
-```bash
-npm install
-```
+   ```bash
+   npm install
+   ```
 
-3. Start the development server:
+3. Run the development server:
+   ```bash
+   npm run tauri dev
+   ```
 
-```bash
-npm run tauri dev
-```
+### Building
 
-### Building for Production
+#### Standard Build
 
-To build the application for production:
+To build the application for your current platform:
 
 ```bash
 npm run tauri build
 ```
 
-This will create platform-specific installers in the `src-tauri/target/release/bundle` directory.
+#### Multi-Architecture Builds for macOS
 
-## Project Structure
+Elastico now supports building for both Intel and Apple Silicon Macs:
 
-- `/src` - React frontend code
-  - `/components` - Reusable UI components
-  - `/pages` - Application pages
-  - `/services` - Services for interacting with Elasticsearch
-  - `/types` - TypeScript type definitions
-  - `/hooks` - Custom React hooks
-  - `/utils` - Utility functions
-- `/src-tauri` - Tauri/Rust backend code
+- **Universal Binary (Both Intel and ARM)**:
 
-## Contributing
+  ```bash
+  npm run build:macos-universal
+  ```
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+- **Intel-only Build**:
+
+  ```bash
+  npm run build:macos-intel
+  ```
+
+- **ARM-only Build**:
+  ```bash
+  npm run build:macos-arm
+  ```
+
+For detailed build instructions and troubleshooting, see [BUILD.md](./BUILD.md).
 
 ## License
 
-This project is licensed under the MIT License.
+[MIT](LICENSE)
