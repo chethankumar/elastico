@@ -283,6 +283,8 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
   const handleTabChange = (tab: TabType) => {
     // Store previous tab for reference
     const previousTab = activeTab;
+    console.log(`Tab changed from ${previousTab} to ${tab}`);
+
     setActiveTab(tab);
 
     // Reset document selection when leaving the documents tab
@@ -290,14 +292,28 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
       setSelectedDoc(null);
     }
 
-    // Refresh documents tab when switching to it from any other tab
-    // or when the tab data is explicitly marked as not loaded
-    if (tab === 'documents' && (previousTab !== 'documents' || !tabDataLoaded.documents)) {
-      console.log('Switching to documents tab, refreshing documents data');
-      // Use the refreshDocuments helper function
-      (async () => {
-        await refreshDocuments();
-      })();
+    // Check if we need to refresh the documents tab
+    if (tab === 'documents') {
+      // If it's not loaded OR if we're coming from another tab, refresh
+      if (!tabDataLoaded.documents) {
+        console.log('Documents tab not loaded or coming from another tab, refreshing documents data');
+
+        // Clear documents first to show loading state
+        setDocuments([]);
+
+        // Use the refreshDocuments helper function
+        (async () => {
+          console.log('Starting async document refresh');
+          try {
+            const refreshedDocs = await refreshDocuments();
+            console.log(`Documents tab refreshed, now showing ${refreshedDocs.length} documents`);
+          } catch (error) {
+            console.error('Failed to refresh documents during tab switch:', error);
+          }
+        })();
+      } else {
+        console.log('Documents tab already loaded, not refreshing');
+      }
     }
   };
 
@@ -420,9 +436,14 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         // Reset the documents tab loaded flag to force refresh when the tab is viewed
         setTabDataLoaded((prev) => ({ ...prev, documents: false }));
 
+        // Clear documents array to ensure UI shows loading state
+        setDocuments([]);
+
         // Refresh document list immediately if we're on documents tab
         if (activeTab === 'documents') {
-          await refreshDocuments();
+          console.log('Refreshing documents immediately after creation');
+          const refreshedDocs = await refreshDocuments();
+          console.log(`Documents refreshed after creation, now has ${refreshedDocs.length} documents`);
         } else {
           // Even if we're not on the documents tab, still refresh the cache data
           // by making a background query to get updated documents
@@ -583,14 +604,25 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
   const refreshAllTabsAfterDelete = async () => {
     console.log('Refreshing all tabs after document deletion');
 
+    // Clear document state to ensure UI updates
+    setDocuments([]);
+
     // Always reset the documents tab data load flag to force a fresh reload
     setTabDataLoaded((prev) => ({ ...prev, documents: false }));
+
+    // Log the active tab to help with debugging
+    console.log(`Current active tab during refresh: ${activeTab}`);
 
     try {
       // Explicitly use refreshDocuments to refresh the documents list
       console.log('Refreshing documents list after deletion');
+
+      // Force a full refresh of documents regardless of current tab
       const refreshedDocs = await refreshDocuments();
       console.log(`Documents refreshed after deletion, now has ${refreshedDocs.length} documents`);
+
+      // Ensure the documents tab is marked as loaded
+      setTabDataLoaded((prev) => ({ ...prev, documents: true }));
     } catch (error) {
       console.error('Failed to refresh documents during all tabs refresh:', error);
     }
@@ -598,6 +630,9 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     // Then refresh the search tab if there's an active search query
     if (searchQuery && searchQuery.trim() !== '') {
       console.log('Refreshing search tab with query:', searchQuery);
+
+      // Clear search results to ensure UI updates
+      setSearchResults([]);
       setIsSearching(true);
       setSearchError(null);
 
@@ -775,19 +810,22 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
   const handleBulkDelete = async () => {
     if (selectedDocIds.size === 0) return;
 
-    // Use the standard confirmation dialog
+    // Close the confirmation dialog since we're starting the delete process
     setShowConfirmDialog(false);
 
     try {
+      // Show loading state
       setIsDeleting(true);
-      console.log(`Deleting ${selectedDocIds.size} documents from index: ${index.name}`);
+      console.log(`Bulk deleting ${selectedDocIds.size} documents from index: ${index.name}`);
 
+      // Perform the deletion
       const docsToDelete = Array.from(selectedDocIds);
       const deletedCount = await elasticsearchService.deleteDocuments(index.name, docsToDelete);
 
+      // Show success message
       showToast(`Deleted ${deletedCount} document${deletedCount !== 1 ? 's' : ''}`, 'success');
 
-      // Clear selection before refreshing to avoid stale references
+      // Clear selection states
       setSelectedDocIds(new Set());
       setIsAllSelected(false);
 
@@ -797,13 +835,18 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
         setSelectedDoc(null);
       }
 
-      // Force the documents tab to refresh on next view by setting the load flag to false
+      // Force immediate refresh of documents
+      console.log('Forcing immediate document refresh after bulk deletion');
+
+      // Clear loaded flag to ensure a fresh reload
       setTabDataLoaded((prev) => ({ ...prev, documents: false }));
 
-      // Refresh both documents and search tabs to ensure consistent data
-      console.log('Refreshing document list after bulk deletion');
-      await refreshAllTabsAfterDelete();
-      console.log('Document list refreshed after bulk deletion');
+      // Force an immediate data refresh
+      setDocuments([]); // Clear documents first to ensure UI updates
+
+      // Explicitly refresh documents
+      const refreshedDocs = await refreshDocuments();
+      console.log(`Document list refreshed after bulk deletion, now has ${refreshedDocs.length} documents`);
 
       // Update the parent indices list to reflect document count changes
       if (onRefresh) {
@@ -2292,68 +2335,6 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
           </div>
         )}
       </div>
-
-      {/* Confirmation Dialog for actions like deletion */}
-      {showConfirmDialog && (
-        <div className='fixed z-10 inset-0 overflow-y-auto'>
-          <div className='flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0'>
-            <div className='fixed inset-0 transition-opacity' aria-hidden='true'>
-              <div className='absolute inset-0 bg-gray-500 opacity-75'></div>
-            </div>
-            <span className='hidden sm:inline-block sm:align-middle sm:h-screen' aria-hidden='true'>
-              &#8203;
-            </span>
-            <div className='inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full'>
-              <div className='bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4'>
-                <div className='sm:flex sm:items-start'>
-                  <div className='mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10'>
-                    <svg className='h-6 w-6 text-red-600' fill='none' viewBox='0 0 24 24' stroke='currentColor'>
-                      <path
-                        strokeLinecap='round'
-                        strokeLinejoin='round'
-                        strokeWidth='2'
-                        d='M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z'
-                      />
-                    </svg>
-                  </div>
-                  <div className='mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left'>
-                    <h3 className='text-lg leading-6 font-medium text-gray-900'>Confirm Deletion</h3>
-                    <div className='mt-2'>
-                      <p className='text-sm text-gray-500'>{confirmMessage}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className='bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse'>
-                <button
-                  type='button'
-                  className='w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm'
-                  onClick={() => handleConfirmDialogResponse(true)}
-                >
-                  {isDeleting ? (
-                    <>
-                      <svg className='animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24'>
-                        <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4'></circle>
-                        <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'></path>
-                      </svg>
-                      Deleting...
-                    </>
-                  ) : (
-                    'Delete'
-                  )}
-                </button>
-                <button
-                  type='button'
-                  className='mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm'
-                  onClick={() => handleConfirmDialogResponse(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
