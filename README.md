@@ -1,3 +1,5 @@
+<a href="https://www.buymeacoffee.com/chethankumarsn" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
 # Elastico - Elasticsearch GUI Client
 
 A modern, user-friendly Elasticsearch client built with Tauri, React, and TypeScript.
