@@ -318,29 +318,24 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     }
   };
 
-  // Load documents when the index changes or pagination/sort changes
+  // Initial load for documents tab
   useEffect(() => {
     if (activeTab !== 'documents') return;
-
-    // Only trigger loading if one of these conditions is true:
-    // 1. The tab is not marked as loaded
-    // 2. The page or sort settings have changed
-    // 3. The page or sort settings are non-default
-    const isNonDefaultPage = page !== 1;
-    const isNonDefaultSort = sortField !== null;
-    const hasChanged = isNonDefaultPage || isNonDefaultSort;
-    const needsReload = !tabDataLoaded.documents || hasChanged;
-
-    if (!needsReload) return;
-
     if (!elasticsearchService.isConnected()) {
       setError('Not connected to Elasticsearch');
       return;
     }
+    if (!tabDataLoaded.documents) {
+      refreshDocuments();
+    }
+  }, [activeTab, index.name, elasticsearchService, tabDataLoaded.documents]);
 
-    // Use the refreshDocuments helper function to load documents
+  // Refresh documents on page or sort change
+  useEffect(() => {
+    if (activeTab !== 'documents') return;
+    if (!elasticsearchService.isConnected()) return;
     refreshDocuments();
-  }, [elasticsearchService, index.name, page, pageSize, activeTab, sortField, sortOrder, tabDataLoaded.documents]);
+  }, [page, sortField, sortOrder]);
 
   // Load mappings when viewing mappings tab for the first time
   useEffect(() => {
