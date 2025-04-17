@@ -204,36 +204,10 @@ const IndexDetail: React.FC<IndexDetailProps> = ({ index, onRefresh }) => {
     const cachedData = indexDataCache.current[index.name];
 
     if (cachedData) {
-      // Restore data from cache
-      if (cachedData.documents.length > 0) {
-        setDocuments(cachedData.documents);
-        setTotalHits(cachedData.totalHits);
-        setTabDataLoaded((prev) => ({ ...prev, documents: true }));
-      }
-
-      if (cachedData.mappings) {
-        setMappings(cachedData.mappings);
-        setTabDataLoaded((prev) => ({ ...prev, mappings: true }));
-      }
-
-      if (cachedData.settings) {
-        setSettings(cachedData.settings);
-        setTabDataLoaded((prev) => ({ ...prev, settings: true }));
-      }
-
-      // Restore search data from cache if it exists
-      if (cachedData.searchResults && cachedData.searchResults.length > 0) {
-        setSearchResults(cachedData.searchResults);
-        setSearchTotalHits(cachedData.searchTotalHits);
-        setSearchQuery(cachedData.searchQuery);
-        setTabDataLoaded((prev) => ({ ...prev, search: true }));
-      } else {
-        // Reset search results if no cached search data
-        setSearchResults([]);
-        setSearchTotalHits(0);
-        setSearchQuery('{\n  "query": {\n    "match_all": {}\n  }\n}');
-        setTabDataLoaded((prev) => ({ ...prev, search: false }));
-      }
+      // Restore documents and totalHits (even when empty)
+      setDocuments(cachedData.documents);
+      setTotalHits(cachedData.totalHits);
+      setTabDataLoaded((prev) => ({ ...prev, documents: true }));
     } else {
       // Initialize cache entry for this index
       indexDataCache.current[index.name] = {

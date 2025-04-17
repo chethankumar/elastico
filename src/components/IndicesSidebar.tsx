@@ -46,6 +46,7 @@ interface IndicesSidebarProps {
   onSelectIndex: (index: ElasticsearchIndex) => void;
   selectedIndex?: ElasticsearchIndex | null;
   registerRefresh?: (refreshFn: () => Promise<void>) => void;
+  onRefreshIndex?: (refreshedIndexName?: string) => Promise<void>;
 }
 
 /**
@@ -60,7 +61,12 @@ interface NewIndexFormData {
 /**
  * Sidebar component with search and index tree
  */
-const IndicesSidebar: React.FC<IndicesSidebarProps> = ({ onSelectIndex, selectedIndex, registerRefresh }) => {
+const IndicesSidebar: React.FC<IndicesSidebarProps> = ({
+  onSelectIndex,
+  selectedIndex,
+  registerRefresh,
+  onRefreshIndex,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [indices, setIndices] = useState<ElasticsearchIndex[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,8 +121,12 @@ const IndicesSidebar: React.FC<IndicesSidebarProps> = ({ onSelectIndex, selected
 
   // Handle refresh button click
   const handleRefresh = async () => {
-    setIsLoading(true);
-    await loadIndices();
+    if (selectedIndex && onRefreshIndex) {
+      await onRefreshIndex(selectedIndex.name);
+    } else {
+      setIsLoading(true);
+      await loadIndices();
+    }
   };
 
   // Handle new index dialog open
@@ -360,7 +370,7 @@ const IndicesSidebar: React.FC<IndicesSidebarProps> = ({ onSelectIndex, selected
           <div className='flex space-x-2'>
             <button onClick={handleOpenNewIndexDialog} className='text-xs text-purple-600 hover:text-purple-800 flex items-center'>
               <svg className='h-3 w-3 mr-1' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'>
-                <path fillRule='evenodd' d='M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z' clipRule='evenodd' />
+                <path fillRule='evenodd' d='M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 01-1 1h-3a1 1 0 110-2h3V6a1 1 0 011-1z' clipRule='evenodd' />
               </svg>
               New
             </button>

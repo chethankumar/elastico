@@ -108,7 +108,12 @@ const Dashboard: React.FC = () => {
   return (
     <div className='flex h-[calc(100vh-4rem)] bg-gray-100'>
       {/* Sidebar */}
-      <IndicesSidebar onSelectIndex={handleSelectIndex} selectedIndex={activeIndex} registerRefresh={registerSidebarRefresh} />
+      <IndicesSidebar
+        onSelectIndex={handleSelectIndex}
+        selectedIndex={activeIndex}
+        registerRefresh={registerSidebarRefresh}
+        onRefreshIndex={handleRefreshAfterOperation}
+      />
 
       {/* Main content area */}
       <div className='flex-1 flex flex-col overflow-hidden'>
