@@ -7,7 +7,7 @@ import { useElasticsearch } from '../contexts/ElasticsearchContext';
  */
 const QueryPage: React.FC = () => {
   const [index, setIndex] = useState<string>('');
-  const [query, setQuery] = useState<string>('{\n  "query": {\n    "match_all": {}\n  }\n}');
+  const [query, setQuery] = useState<string>('{\n  "query": {\n    "query_string": {\n      "query": "*"\n    }\n  }\n}');
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
